@@ -1,0 +1,505 @@
+<script>
+  import { onMount } from 'svelte';
+  import { invalidateAll } from '$app/navigation';
+  import SignalCard from "$lib/components/SignalCard.svelte";
+
+  let { data } = $props();
+  let apiData = $derived(data.apiData);
+  let errorMsg = $derived(data.error);
+  let signals = $derived(apiData?.signals || []);
+
+  // Format date
+  let generatedAt = $derived(apiData ? new Date(apiData.generated_at).toLocaleString('en-US', {
+    weekday: 'short', month: 'short', day: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit'
+  }) : '');
+
+  function getSentimentColor(sentiment) {
+    if (!sentiment) return 'var(--text-main)';
+    if (sentiment.toLowerCase().includes('bull') || sentiment.toLowerCase().includes('risk on')) return 'var(--accent-green)';
+    if (sentiment.toLowerCase().includes('bear') || sentiment.toLowerCase().includes('risk off')) return 'var(--accent-red)';
+    return 'var(--accent-orange)';
+  }
+
+  let currentTime = $state('');
+  let copied = $state(false);
+  let lastFetchedMinute = -1;
+
+  onMount(() => {
+    const updateClock = () => {
+      const now = new Date();
+      currentTime = now.toLocaleString('id-ID', {
+        timeZone: 'Asia/Jakarta',
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+      }) + ' WIB';
+
+      // Check if it's the 3rd second of the minute
+      if (now.getSeconds() === 3 && now.getMinutes() !== lastFetchedMinute) {
+        lastFetchedMinute = now.getMinutes();
+        invalidateAll();
+      }
+    };
+
+    updateClock();
+    const interval = setInterval(updateClock, 1000);
+    return () => clearInterval(interval);
+  });
+
+  async function copyJson() {
+    if (!apiData) return;
+    try {
+      const fullPayload = {
+        status: 200,
+        success: true,
+        message: "berhasil",
+        data: apiData
+      };
+      await navigator.clipboard.writeText(JSON.stringify(fullPayload));
+      copied = true;
+      setTimeout(() => copied = false, 2000);
+    } catch (err) {
+      console.error('Failed to copy', err);
+    }
+  }
+</script>
+
+<div class="dashboard-container">
+  <!-- Header -->
+  <header class="header-glass">
+    <div class="header-content">
+      <div class="logo-area">
+        <div class="logo-icon"></div>
+        <h1>{currentTime || 'Sniper Dashboard'}</h1>
+      </div>
+      {#if apiData}
+        <div class="last-updated">
+          <span class="pulse-dot"></span>
+          Last Update: {generatedAt}
+        </div>
+      {/if}
+    </div>
+  </header>
+
+  {#if errorMsg}
+    <div class="error-container glass-panel">
+      <h2>Failed to load market data</h2>
+      <p>{errorMsg}</p>
+    </div>
+  {:else if !apiData}
+    <div class="loading-container glass-panel">
+      <div class="spinner"></div>
+      <p>Analyzing market data...</p>
+    </div>
+  {:else}
+    <!-- Global Market Overview -->
+    <section class="overview-grid">
+      <div class="stat-card glass-panel">
+        <div class="stat-label">Market Sentiment</div>
+        <div class="stat-value" style="color: {getSentimentColor(apiData.market_sentiment)}">
+          {apiData.market_sentiment}
+        </div>
+      </div>
+      <div class="stat-card glass-panel">
+        <div class="stat-label">BTC Trend & Strength</div>
+        <div class="stat-value" style="font-size: 1.1rem;">
+          <span style="color: {getSentimentColor(apiData.btc_trend)}; font-weight: 800;">{apiData.btc_trend}</span>
+          <div class="score-bar-container" style="margin: 0 0.25rem;">
+            <div class="score-bar" style="width: {apiData.btc_strength_score * 10}%; background: {getSentimentColor(apiData.btc_trend)}"></div>
+          </div>
+          <span>{apiData.btc_strength_score}/10</span>
+        </div>
+      </div>
+      <div class="stat-card glass-panel">
+        <div class="stat-label">Volatility</div>
+        <div class="stat-value" style="color: {apiData.market_volatility === 'High' ? 'var(--accent-orange)' : 'var(--text-main)'}">
+          {apiData.market_volatility}
+        </div>
+      </div>
+      <div class="stat-card glass-panel signal-counts">
+        <div class="signal-count long">
+          <span class="label">Longs</span>
+          <span class="value">{apiData.long_signals}</span>
+        </div>
+        <div class="signal-separator"></div>
+        <div class="signal-count short">
+          <span class="label">Shorts</span>
+          <span class="value">{apiData.short_signals}</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Signals List -->
+    <section class="signals-section">
+      <div class="section-header">
+        <h2 class="section-title">Active Signals</h2>
+        <button class="copy-btn glass-panel" onclick={copyJson}>
+          {#if copied}
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" class="success-icon"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            Copied!
+          {:else}
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            Copy JSON
+          {/if}
+        </button>
+      </div>
+      <div class="signals-grid">
+        {#each signals as signal}
+          <SignalCard {signal} {apiData} btcScore={apiData.btc_strength_score} />
+        {/each}
+      </div>
+    </section>
+  {/if}
+</div>
+
+<style>
+  .dashboard-container {
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 2rem;
+  }
+
+  /* Glassmorphism Utilities */
+  :global(.glass-panel) {
+    background: rgba(24, 27, 33, 0.6);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+    border-radius: 16px;
+    transition: transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+  }
+
+  :global(.glass-panel:hover) {
+    transform: translateY(-2px);
+    box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.4);
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  /* Header */
+  .header-glass {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    margin-bottom: 2rem;
+    padding: 1rem 2rem;
+    border-radius: 16px;
+    background: rgba(15, 17, 21, 0.8);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .header-content {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .logo-area {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .logo-icon {
+    width: 10px;
+    height: 10px;
+    background-color: var(--accent-purple);
+    border-radius: 50%;
+    box-shadow: 0 0 0 rgba(168, 85, 247, 0.4);
+    animation: pulse-purple 2s infinite;
+  }
+
+  @keyframes pulse-purple {
+    0% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0.4); }
+    70% { box-shadow: 0 0 0 6px rgba(168, 85, 247, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(168, 85, 247, 0); }
+  }
+
+  h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    background: linear-gradient(to right, #fff, #9ca3af);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    letter-spacing: -0.02em;
+  }
+
+  .last-updated {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    font-weight: 500;
+  }
+
+  .pulse-dot {
+    width: 8px;
+    height: 8px;
+    background-color: var(--accent-green);
+    border-radius: 50%;
+    box-shadow: 0 0 0 rgba(16, 185, 129, 0.4);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+    70% { box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+  }
+
+  /* Overview Grid */
+  .overview-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1.5rem;
+    margin-bottom: 3rem;
+  }
+
+  .stat-card {
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .stat-label {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .score-bar-container {
+    flex-grow: 1;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .score-bar {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 1s ease-in-out;
+  }
+
+  .signal-counts {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-around;
+  }
+
+  .signal-count {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.25rem;
+  }
+
+  .signal-count .label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+  }
+
+  .signal-count.long .value {
+    color: var(--accent-green);
+    font-size: 1.75rem;
+    font-weight: 800;
+  }
+
+  .signal-count.short .value {
+    color: var(--accent-red);
+    font-size: 1.75rem;
+    font-weight: 800;
+  }
+
+  .signal-separator {
+    width: 1px;
+    height: 40px;
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  /* Signals Section */
+  .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+  }
+
+  .section-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .section-title::before {
+    content: '';
+    display: block;
+    width: 4px;
+    height: 20px;
+    background: var(--accent-blue);
+    border-radius: 2px;
+  }
+
+  .copy-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 1rem;
+    background: rgba(59, 130, 246, 0.1);
+    color: var(--accent-blue);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    border-radius: 8px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .copy-btn:hover {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: rgba(59, 130, 246, 0.3);
+  }
+
+  .success-icon {
+    color: var(--accent-green);
+  }
+
+  .signals-grid {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 1.5rem;
+  }
+  
+  @media (max-width: 1600px) {
+    .signals-grid {
+      grid-template-columns: repeat(4, 1fr);
+    }
+  }
+  
+  @media (max-width: 1200px) {
+    .signals-grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+    .overview-grid {
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    }
+  }
+
+  @media (max-width: 900px) {
+    .signals-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  .loading-container, .error-container {
+    padding: 3rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 1.5rem;
+    min-height: 300px;
+  }
+
+  .error-container h2 {
+    color: var(--accent-red);
+  }
+
+  .error-container p {
+    color: var(--text-muted);
+  }
+
+  .spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(59, 130, 246, 0.3);
+    border-radius: 50%;
+    border-top-color: var(--accent-blue);
+    animation: spin 1s ease-in-out infinite;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* Responsive Adjustments */
+  @media (max-width: 768px) {
+    .dashboard-container {
+      padding: 1rem 1rem;
+    }
+
+    .header-glass {
+      padding: 0.75rem 1rem;
+      margin-bottom: 1.5rem;
+      border-radius: 12px;
+    }
+
+    h1 {
+      font-size: 0.9rem;
+    }
+
+    .logo-icon {
+      width: 8px;
+      height: 8px;
+    }
+
+    .last-updated {
+      font-size: 0.7rem;
+    }
+
+    .overview-grid {
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+
+    .stat-card {
+      padding: 1rem;
+    }
+
+    .stat-label {
+      font-size: 0.75rem;
+    }
+
+    .stat-value {
+      font-size: 1.25rem;
+    }
+
+    .signal-count .label {
+      font-size: 0.65rem;
+    }
+
+    .signal-count.long .value,
+    .signal-count.short .value {
+      font-size: 1.25rem;
+    }
+
+    .signals-grid {
+      grid-template-columns: 1fr;
+      gap: 1rem;
+    }
+  }
+</style>
