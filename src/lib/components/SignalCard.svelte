@@ -15,10 +15,12 @@
         btc_trend: apiData.btc_trend,
         btc_strength_score: apiData.btc_strength_score,
         market_volatility: apiData.market_volatility,
+        long_signals: apiData.long_signals,
+        short_signals: apiData.short_signals,
         generated_at: apiData.generated_at,
-        signal: signal
+        ...signal
       };
-      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+      await navigator.clipboard.writeText(JSON.stringify(payload));
       copiedCard = true;
       setTimeout(() => copiedCard = false, 2000);
     } catch (err) {
