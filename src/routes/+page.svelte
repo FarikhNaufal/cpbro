@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { invalidateAll } from '$app/navigation';
+  import { slide } from 'svelte/transition';
   import SignalCard from "$lib/components/SignalCard.svelte";
 
   let { data } = $props();
@@ -23,7 +24,22 @@
 
   let currentTime = $state('');
   let copied = $state(false);
+  let showToast = $state(false);
+  let isRefreshing = $state(false);
   let lastFetchedMinute = -1;
+
+  async function handleRefresh() {
+    isRefreshing = true;
+    try {
+      await invalidateAll();
+      showToast = true;
+      setTimeout(() => showToast = false, 2000);
+    } catch (err) {
+      console.error('Refresh failed', err);
+    } finally {
+      isRefreshing = false;
+    }
+  }
 
   onMount(() => {
     const updateClock = () => {
@@ -42,7 +58,7 @@
       // Check if it's the 3rd second of the minute
       if (now.getSeconds() === 3 && now.getMinutes() !== lastFetchedMinute) {
         lastFetchedMinute = now.getMinutes();
-        invalidateAll();
+        handleRefresh(); // Now calls the function that shows the toast
       }
     };
 
@@ -137,7 +153,17 @@
     <!-- Signals List -->
     <section class="signals-section">
       <div class="section-header">
-        <h2 class="section-title">Active Signals</h2>
+        <h2 class="section-title">
+          Active Signals
+          <button 
+            class="refresh-btn {isRefreshing ? 'spinning' : ''}" 
+            onclick={handleRefresh} 
+            disabled={isRefreshing}
+            title="Refresh Market Data"
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="3" fill="none"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+          </button>
+        </h2>
         <button class="copy-btn glass-panel" onclick={copyJson}>
           {#if copied}
             <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" class="success-icon"><polyline points="20 6 9 17 4 12"></polyline></svg>
@@ -148,12 +174,28 @@
           {/if}
         </button>
       </div>
-      <div class="signals-grid">
-        {#each signals as signal}
-          <SignalCard {signal} {apiData} btcScore={apiData.btc_strength_score} />
-        {/each}
-      </div>
+      {#if signals.length === 0}
+        <div class="empty-signals glass-panel">
+          <div class="empty-icon">🔭</div>
+          <h3>No Signals Found</h3>
+          <p>Market conditions don't meet sniper criteria. Waiting for high-confluence setups...</p>
+        </div>
+      {:else}
+        <div class="signals-grid">
+          {#each signals as signal}
+            <SignalCard {signal} {apiData} btcScore={apiData.btc_strength_score} />
+          {/each}
+        </div>
+      {/if}
     </section>
+  {/if}
+
+  <!-- Success Notification (Toast) -->
+  {#if showToast}
+    <div class="toast-notification glass-panel" transition:slide={{ axis: 'y' }}>
+      <svg viewBox="0 0 24 24" width="14" height="14" stroke="#34d399" stroke-width="3" fill="none"><polyline points="20 6 9 17 4 12"></polyline></svg>
+      <span>Market Data Updated</span>
+    </div>
   {/if}
 </div>
 
@@ -196,9 +238,21 @@
   }
 
   .header-content {
-    display: flex;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
     align-items: center;
+  }
+
+  .last-updated {
+    width: 100%;
+    text-align: right;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    font-weight: 500;
   }
 
   .logo-area {
@@ -389,8 +443,73 @@
 
   .signals-grid {
     display: grid;
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 1.5rem;
+  }
+
+  .refresh-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: var(--text-muted);
+    border-radius: 8px;
+    padding: 0.35rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-left: 0.75rem;
+  }
+
+  .refresh-btn:hover:not(:disabled) {
+    background: rgba(59, 130, 246, 0.15);
+    color: var(--accent-blue);
+    border-color: rgba(59, 130, 246, 0.3);
+  }
+
+  .refresh-btn.spinning svg {
+    animation: spin 1s linear infinite;
+  }
+
+  .toast-notification {
+    position: fixed;
+    bottom: 2rem;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 0.75rem 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    z-index: 1000;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #fff;
+    border-color: rgba(52, 211, 153, 0.3) !important;
+  }
+
+
+  .empty-signals {
+    padding: 3rem 2rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 0.75rem;
+  }
+
+  .empty-icon { font-size: 2.5rem; }
+
+  .empty-signals h3 {
+    color: var(--text-main);
+    font-size: 1.1rem;
+    font-weight: 700;
+  }
+
+  .empty-signals p {
+    color: var(--text-muted);
+    font-size: 0.875rem;
+    max-width: 400px;
   }
   
   @media (max-width: 1600px) {
@@ -485,7 +604,8 @@
     }
 
     .stat-value {
-      font-size: 1.25rem;
+      font-size: 1.1rem; /* Reduced from 1.25rem */
+      letter-spacing: -0.01em;
     }
 
     .signal-count .label {

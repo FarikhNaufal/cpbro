@@ -1,15 +1,11 @@
 <script>
   import Sparkline from './Sparkline.svelte';
+  import { slide } from 'svelte/transition';
   
   let { signal, apiData, btcScore = 0 } = $props();
   
   let copiedCard = $state(false);
-
-  function getSignalColor(sig) {
-    if (sig.includes('LONG')) return 'var(--accent-green)';
-    if (sig.includes('SHORT')) return 'var(--accent-red)';
-    return 'var(--text-main)';
-  }
+  let showNotes = $state(false);
 
   async function copySignalJson() {
     if (!apiData) return;
@@ -19,12 +15,10 @@
         btc_trend: apiData.btc_trend,
         btc_strength_score: apiData.btc_strength_score,
         market_volatility: apiData.market_volatility,
-        long_signals: apiData.long_signals,
-        short_signals: apiData.short_signals,
         generated_at: apiData.generated_at,
         signal: signal
       };
-      await navigator.clipboard.writeText(JSON.stringify(payload));
+      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
       copiedCard = true;
       setTimeout(() => copiedCard = false, 2000);
     } catch (err) {
@@ -32,397 +26,503 @@
     }
   }
 
-  // --- TRAFFIC LIGHT SNIPER LOGIC ---
-  let isLong = $derived(signal.signal.includes('LONG'));
+  function getSignalColor(sig) {
+    if (!sig) return 'var(--text-muted)';
+    if (sig.includes('LONG')) return 'var(--accent-green)';
+    if (sig.includes('SHORT')) return 'var(--accent-red)';
+    return 'var(--text-main)';
+  }
 
-  let mfiColorClass = $derived.by(() => {
-    if (signal.mfi_15m >= 40 && signal.mfi_15m <= 60) return 'text-slate-500';
-    if (isLong && signal.mfi_15m < 30) return 'text-emerald-400 glow-emerald';
-    if (!isLong && signal.mfi_15m > 70) return 'text-emerald-400 glow-emerald';
-    if (isLong && signal.mfi_15m >= 30) return 'text-amber-500';
-    if (!isLong && signal.mfi_15m <= 70) return 'text-amber-500';
-    return 'text-slate-500';
-  });
+  // Helpers
+  let isLong = $derived(signal?.signal?.includes('LONG') ?? false);
 
+  // RSI Color — Updated to match Backend V2.1 logic
   let rsiColorClass = $derived.by(() => {
-    if (signal.rsi_15m >= 40 && signal.rsi_15m <= 60) return 'text-slate-500';
-    if (isLong && signal.rsi_15m < 35) return 'text-emerald-400 glow-emerald';
-    if (!isLong && signal.rsi_15m > 75) return 'text-emerald-400 glow-emerald';
-    if (isLong && signal.rsi_15m >= 35) return 'text-amber-500';
-    if (!isLong && signal.rsi_15m <= 75) return 'text-amber-500';
-    return 'text-slate-500';
+    const r = signal.rsi_15m;
+    const notes = signal.notes ?? [];
+    const hasVolSpike = signal.volume_spike;
+
+    if (isLong) {
+      if (r < 30) return 'val--fire'; // Extreme Oversold
+      if (r < 42) return 'val--warm'; // Normal Dip
+      if (r >= 42 && r <= 55 && hasVolSpike) return 'val--hot'; // Mid-range Momentum
+    } else {
+      if (r > 70) return 'val--fire'; // Extreme Overbought
+      if (r > 58) return 'val--warm'; // Normal Rip
+      if (r >= 45 && r <= 58 && hasVolSpike) return 'val--hot'; // Mid-range Momentum
+    }
+    return 'val--neutral';
   });
 
-  let fundingColorClass = $derived.by(() => {
-    if (isLong && signal.funding_rate < 0) return 'text-emerald-400 glow-emerald';
-    if (!isLong && signal.funding_rate > 0) return 'text-emerald-400 glow-emerald';
-    return '';
+  // MFI Color
+  let mfiColorClass = $derived.by(() => {
+    const m = signal.mfi_15m;
+    if (isLong && m < 30) return 'val--fire';
+    if (isLong && m < 40) return 'val--warm';
+    if (!isLong && m > 70) return 'val--fire';
+    if (!isLong && m > 60) return 'val--warm';
+    return 'val--neutral';
   });
 
-  let confidenceColorClass = $derived.by(() => {
-    if (signal.confidence > 80) return 'text-emerald-400';
-    if (signal.confidence >= 50) return 'text-amber-500';
-    return 'text-rose-400';
+  // Funding Rate — Precise sync with Backend dynamic threshold (atrPct * 0.01)
+  let fundingLabel = $derived.by(() => {
+    const f = signal.funding_rate;
+    const lastPrice = signal.last_price || 1;
+    const atr = signal.atr || 0;
+    const atrPct = (atr / lastPrice) * 100;
+    const pct = (f * 100).toFixed(4);
+    
+    // Dynamic threshold from backend line 384
+    let threshold = atrPct * 0.01;
+    if (threshold < 0.005) threshold = 0.005;
+    if (threshold > 0.03) threshold = 0.03;
+
+    if (Math.abs(f) > threshold) {
+      const isCrowded = (f > 0 && isLong) || (f < 0 && !isLong);
+      return { 
+        label: `${f > 0 ? '+' : ''}${pct}%`, 
+        cls: isCrowded ? 'val--danger' : 'val--warm', 
+        tip: `Threshold: ${threshold.toFixed(4)}` 
+      };
+    }
+    return { label: `${pct}%`, cls: 'val--neutral', tip: 'Healthy Funding' };
   });
 
+  // OI Change — Matches 1.5% Aggressive threshold
+  let oiLabel = $derived.by(() => {
+    const oi = signal.oi_change;
+    const notes = signal.notes ?? [];
+    if (!oi && oi !== 0) return { label: 'N/A', cls: 'val--neutral' };
+    
+    const hasConfirm = notes.some(n => n.includes('2-Candle Confirm'));
+    
+    if (Math.abs(oi) > 1.5) {
+      if (hasConfirm) return { label: `${oi > 0 ? '+' : ''}${oi.toFixed(2)}%`, cls: 'val--fire' };
+      return { label: `${oi > 0 ? '+' : ''}${oi.toFixed(2)}%`, cls: 'val--warm' };
+    }
+    return { label: `${oi.toFixed(2)}%`, cls: 'val--neutral' };
+  });
+
+  // Confluence Rating color
+  let confluenceColorClass = $derived.by(() => {
+    const r = signal.confluence_rating ?? '';
+    if (r.includes('S')) return 'val--fire';
+    if (r.includes('A')) return 'val--hot';
+    if (r.includes('B')) return 'val--warm';
+    return 'val--neutral';
+  });
+
+  // ADX Logic
   let isDangerTrend = $derived(signal.adx_15m > 45);
+  let adxRising = $derived(signal.adx_15m > (signal.raw_klines?.[signal.raw_klines.length - 2]?.adx ?? signal.adx_15m));
+  
   let isAntiShort = $derived(!isLong && btcScore >= 8);
+  let btcFilterOk = $derived(isLong
+    ? signal.btc_filter?.toLowerCase().includes('bull')
+    : signal.btc_filter?.toLowerCase().includes('bear'));
 
-  let btcFilterOk = $derived(isLong ? signal.btc_filter.toLowerCase().includes('bull') : signal.btc_filter.toLowerCase().includes('bear'));
+  // Regime display
+  let regimeClass = $derived.by(() => {
+    const r = signal.market_structure?.market_regime ?? '';
+    if (r.includes('Trending Bullish')) return 'regime-bull';
+    if (r.includes('Trending Bearish')) return 'regime-bear';
+    if (r.includes('Squeeze')) return 'regime-squeeze';
+    return 'regime-chop';
+  });
 
+  // Master Status based on new fields
   let masterStatus = $derived.by(() => {
-    if (isDangerTrend) return { text: 'DANGER: TRENDING', bg: 'bg-rose-600', pulse: false };
-    
-    const rsiReady = isLong ? signal.rsi_15m < 35 : signal.rsi_15m > 75;
+    const notes = signal.notes ?? [];
+    const hasHunt = notes.some(n => n.toLowerCase().includes('hunting'));
+    const hasEngulf = notes.some(n => n.toLowerCase().includes('engulfing'));
+    const hasDiv = notes.some(n => n.toLowerCase().includes('divergence'));
+
+    const rsiReady = isLong ? signal.rsi_15m < 35 : signal.rsi_15m > 65;
     const mfiReady = isLong ? signal.mfi_15m < 30 : signal.mfi_15m > 70;
-    const rsiNeutral = signal.rsi_15m >= 40 && signal.rsi_15m <= 60;
-    const mfiNeutral = signal.mfi_15m >= 40 && signal.mfi_15m <= 60;
 
-    if (rsiReady && mfiReady && btcFilterOk) {
-      return { text: 'EXECUTE TARGET', bg: 'bg-emerald-600', pulse: false };
+    if (isDangerTrend) return { text: '⚠️ STRONG TREND', bg: 'bg-rose' };
+    if ((rsiReady || hasDiv) && (mfiReady || hasHunt || hasEngulf) && btcFilterOk) {
+      return { text: '🎯 EXECUTE TARGET', bg: 'bg-green' };
     }
-    
-    if (rsiNeutral || mfiNeutral) {
-      return { text: "NO MAN'S LAND", bg: 'bg-slate-600', pulse: false };
+    if (rsiReady || hasHunt) {
+      return { text: '🔍 STALKING...', bg: 'bg-amber' };
     }
-
-    return { text: 'STALKING...', bg: 'bg-amber-600', pulse: false };
+    return { text: "⚖️ NEUTRAL ZONE", bg: 'bg-slate' };
   });
 
 </script>
 
-<div class="signal-card glass-panel">
+<div class="signal-card glass-panel {isDangerTrend ? 'danger-glow' : ''}">
   
-  <!-- Master Status Badge -->
-  <div class="master-status {masterStatus.bg}">
-    STATUS: {masterStatus.text}
+  <!-- Status Banner -->
+  <div class="master-banner {masterStatus.bg}">
+    <span class="status-dot"></span>
+    {masterStatus.text}
   </div>
 
-  <!-- Card Header -->
-  <div class="card-header">
-    <div class="symbol-info">
-      <div style="display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.35rem;">
-        <h3 style="margin: 0;">{signal.symbol}</h3>
-        <button class="card-copy-btn" onclick={copySignalJson} title="Copy JSON">
-          {#if copiedCard}
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none" class="success-icon"><polyline points="20 6 9 17 4 12"></polyline></svg>
-          {:else}
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="2" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-          {/if}
-        </button>
+  <div class="card-content">
+    <!-- Header: Symbol & Price -->
+    <div class="card-header">
+      <div class="sym-block">
+        <div class="sym-row">
+          <h3>{signal.symbol}</h3>
+          <button class="icon-copy-btn" onclick={copySignalJson} title="Copy JSON Signal">
+            {#if copiedCard}
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="#34d399" stroke-width="3" fill="none"><polyline points="20 6 9 17 4 12"></polyline></svg>
+            {:else}
+              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            {/if}
+          </button>
+        </div>
+        <div class="badge-row">
+          <span class="grade-badge {confluenceColorClass}">{signal.confluence_rating}</span>
+          <span class="sig-badge" style="color:{getSignalColor(signal.signal)}; border: 1px solid {getSignalColor(signal.signal)}40">
+            {signal.signal?.replace('_', ' ')}
+          </span>
+        </div>
       </div>
-      {#if isAntiShort}
-        <span class="signal-badge anti-short-badge">
-          DO NOT SHORT (BTC 8+)
-        </span>
-      {:else}
-        <span class="signal-badge" style="background: {getSignalColor(signal.signal)}20; color: {getSignalColor(signal.signal)}; border: 1px solid {getSignalColor(signal.signal)}40">
-          {signal.signal.replace('_', ' ')}
-        </span>
+      <div class="price-block">
+        <div class="main-price">${signal.last_price?.toFixed(4)}</div>
+        <div class="price-change {signal.price_change_24h >= 0 ? 'pos' : 'neg'}">
+          {signal.price_change_24h >= 0 ? '▲' : '▼'} {Math.abs(signal.price_change_24h)}%
+        </div>
+      </div>
+    </div>
+
+    <!-- Live Chart -->
+    <div class="chart-area">
+      <Sparkline data={signal.raw_klines} width={400} height={50} />
+    </div>
+
+    <!-- Core Metrics Grid -->
+    <div class="metrics-container">
+      <div class="metric-item">
+        <span class="m-label">RSI</span>
+        <span class="m-value {rsiColorClass}">{signal.rsi_15m}</span>
+      </div>
+      <div class="metric-item">
+        <span class="m-label">MFI</span>
+        <span class="m-value {mfiColorClass}">{signal.mfi_15m}</span>
+      </div>
+      <div class="metric-item">
+        <span class="m-label">ADX</span>
+        <span class="m-value">{signal.adx_15m}</span>
+      </div>
+      <div class="metric-item">
+        <span class="m-label">OI</span>
+        <span class="m-value {oiLabel.cls}">{oiLabel.label}</span>
+      </div>
+      <div class="metric-item">
+        <span class="m-label">FUND</span>
+        <span class="m-value {fundingLabel.cls}">{fundingLabel.label}</span>
+      </div>
+      <div class="metric-item">
+        <span class="m-label">BTC</span>
+        <span class="m-value {btcFilterOk ? 'val--fire' : 'val--danger'}">{signal.btc_filter?.split(' ')[0]}</span>
+      </div>
+    </div>
+
+    <!-- Execution Plan Block -->
+    <div class="execution-grid">
+      <div class="exec-block">
+        <div class="block-head">ENTRY ZONE</div>
+        <div class="val-large">${signal.entry_zone}</div>
+        <div class="sub-info">Hold: {signal.max_hold_candles}c ({signal.max_hold_minutes}m)</div>
+      </div>
+      <div class="exec-block">
+        <div class="block-head">TARGET / RISK</div>
+        <div class="target-row">
+          <span class="t-label">TP1</span>
+          <span class="pos font-bold">${signal.tp1}</span>
+        </div>
+        <div class="target-row">
+          <span class="t-label">SL</span>
+          <span class="neg font-bold">${signal.stop_loss}</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Extra Intelligence -->
+    <div class="intel-footer">
+      <div class="regime-tag" title="Market Structure">
+        <span class="regime-icon">🌐</span> {signal.market_structure?.description || 'Mid Range'}
+      </div>
+      {#if signal.liquidation_levels?.is_hunting}
+        <div class="hunt-tag">🎯 STOP HUNT</div>
       {/if}
     </div>
-    <div class="price-info">
-      <span class="last-price">${signal.last_price.toFixed(4)}</span>
-      <span class="price-change {signal.price_change_24h >= 0 ? 'positive' : 'negative'}">
-        {signal.price_change_24h >= 0 ? '+' : ''}{signal.price_change_24h}%
-      </span>
-    </div>
+
+    {#if signal.notes?.length > 0}
+      <div class="notes-container">
+        <button class="notes-toggle" onclick={() => showNotes = !showNotes}>
+          <span>{showNotes ? 'HIDE NOTES' : 'SHOW NOTES'}</span>
+          <svg class:rotate={showNotes} viewBox="0 0 24 24" width="10" height="10" stroke="currentColor" stroke-width="3" fill="none"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        </button>
+        
+        {#if showNotes}
+          <div class="notes-line" transition:slide>
+            {#each signal.notes as note}
+              <span class="note-tag">{note}</span>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    {/if}
   </div>
-
-  <div class="chart-metrics-wrapper">
-    <!-- Sparkline Chart -->
-    <div class="chart-container">
-        <Sparkline data={signal.raw_klines} width={400} height={80} />
-    </div>
-
-    <!-- Metrics Grid -->
-    <div class="metrics-grid">
-      <div class="metric">
-        <span class="label">Confidence</span>
-        <span class="value confidence-value {confidenceColorClass}">{signal.confidence}%</span>
-      </div>
-      <div class="metric">
-        <span class="label">Score</span>
-        <span class="value">{signal.score}/10</span>
-      </div>
-      <div class="metric">
-        <span class="label">Structure</span>
-        <span class="value truncate" title="{signal.market_structure.description}">{signal.market_structure.description}</span>
-      </div>
-      <div class="metric">
-        <span class="label">Volume Spike</span>
-        <span class="value {signal.volume_spike ? 'positive' : ''}">{signal.volume_spike ? 'Yes' : 'No'}</span>
-      </div>
-    </div>
-  </div>
-
-  <!-- Indicators & Liquidation (Moved UP) -->
-  <div class="advanced-metrics">
-    <div class="metrics-column">
-      <div class="small-metric"><span>RSI:</span> <span class="{rsiColorClass} font-bold">{signal.rsi_15m}</span></div>
-      <div class="small-metric"><span>MFI:</span> <span class="{mfiColorClass} font-bold">{signal.mfi_15m}</span></div>
-      <div class="small-metric"><span>ADX:</span> <span>{signal.adx_15m}</span></div>
-    </div>
-    <div class="metrics-column">
-      <div class="small-metric"><span>Funding:</span> <span class="{fundingColorClass} font-bold">{(signal.funding_rate * 100).toFixed(4)}%</span></div>
-      <div class="small-metric"><span>Liq Upper:</span> <span>${signal.liquidation_levels.upper_cluster}</span></div>
-      <div class="small-metric"><span>Liq Lower:</span> <span>${signal.liquidation_levels.lower_cluster}</span></div>
-    </div>
-  </div>
-
-  {#if isDangerTrend}
-    <div class="danger-overlay-text">⚠️ STRONG TREND - DO NOT COUNTER</div>
-  {/if}
 </div>
 
 <style>
-  /* Tailwind Utility Clones */
-  .text-emerald-400 { color: #34d399 !important; }
-  .text-amber-500 { color: #f59e0b !important; }
-  .text-slate-500 { color: #64748b !important; }
-  .text-rose-600 { color: #e11d48 !important; }
-  .text-rose-400 { color: #fb7185 !important; }
-  .bg-emerald-600 { background-color: rgba(5, 150, 105, 0.2) !important; color: #34d399 !important; border-bottom: 1px solid #059669 !important; }
-  .bg-amber-600 { background-color: rgba(217, 119, 6, 0.2) !important; color: #f59e0b !important; border-bottom: 1px solid #d97706 !important; }
-  .bg-slate-600 { background-color: rgba(71, 85, 105, 0.2) !important; color: #cbd5e1 !important; border-bottom: 1px solid #475569 !important; }
-  .bg-rose-600 { background-color: rgba(225, 29, 72, 0.2) !important; color: #fb7185 !important; border-bottom: 1px solid #e11d48 !important; }
-  .font-bold { font-weight: 700 !important; }
-
-  .glow-emerald {
-    text-shadow: 0 0 10px rgba(52, 211, 153, 0.6);
+  /* === Premium Signal Card === */
+  .signal-card {
+    background: rgba(30, 41, 59, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 20px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    position: relative;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  .danger-overlay-text {
-    width: calc(100% + 2rem);
-    margin: 1rem -1rem -1rem -1rem;
-    background-color: rgba(225, 29, 72, 0.2);
-    color: #fb7185;
-    border-top: 1px solid rgba(225, 29, 72, 0.4);
-    text-align: center;
-    font-size: 0.7rem;
-    font-weight: 800;
-    padding: 0.35rem;
-    letter-spacing: 0.05em;
+  .signal-card:hover {
+    transform: translateY(-5px);
+    background: rgba(30, 41, 59, 0.7);
+    border-color: rgba(255, 255, 255, 0.15);
+    box-shadow: 0 20px 40px -20px rgba(0, 0, 0, 0.5);
   }
 
-  .master-status {
-    width: calc(100% + 2rem);
-    margin: -1rem -1rem 0.5rem -1rem;
-    padding: 0.35rem;
-    text-align: center;
+  .danger-glow {
+    border-color: rgba(244, 63, 94, 0.3) !important;
+    box-shadow: 0 0 20px rgba(244, 63, 94, 0.1);
+  }
+
+  /* Status Banner */
+  .master-banner {
+    padding: 0.5rem;
     font-size: 0.65rem;
     font-weight: 800;
+    text-transform: uppercase;
     letter-spacing: 0.1em;
-  }
-  
-  .anti-short-badge {
-    background: rgba(225, 29, 72, 0.2) !important;
-    color: #e11d48 !important;
-    border: 1px solid rgba(225, 29, 72, 0.5) !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   }
 
-  /* Signal Card */
-  .signal-card {
-    padding: 1rem;
+  .status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 10px currentColor;
+  }
+
+  .card-content {
+    padding: 1.25rem;
     display: flex;
     flex-direction: column;
     gap: 1rem;
-    position: relative;
-    overflow: hidden;
   }
 
-  /* Decorative glowing orb */
-  .signal-card::before {
-    content: '';
-    position: absolute;
-    top: -50px;
-    right: -50px;
-    width: 100px;
-    height: 100px;
-    background: var(--accent-red);
-    filter: blur(60px);
-    opacity: 0.15;
-    border-radius: 50%;
-    pointer-events: none;
-  }
-
+  /* Header */
   .card-header {
     display: flex;
     justify-content: space-between;
-    align-items: flex-start;
-  }
-
-  .symbol-info h3 {
-    font-size: 1.15rem;
-    font-weight: 800;
-    letter-spacing: -0.02em;
-  }
-
-  .card-copy-btn {
-    background: transparent;
-    border: none;
-    color: var(--text-muted);
-    cursor: pointer;
-    padding: 0.2rem;
-    border-radius: 4px;
-    display: flex;
     align-items: center;
-    justify-content: center;
-    transition: all 0.2s;
   }
 
-  .card-copy-btn:hover {
-    color: var(--accent-blue);
-    background: rgba(255, 255, 255, 0.05);
+  .sym-block h3 {
+    font-size: 1.4rem;
+    font-weight: 900;
+    margin: 0;
+    letter-spacing: -0.02em;
+    color: #f8fafc;
   }
 
-  .card-copy-btn .success-icon {
-    color: var(--accent-green);
+  .badge-row {
+    display: flex;
+    gap: 0.4rem;
+    margin-top: 0.3rem;
   }
 
-  .signal-badge {
-    display: inline-block;
-    padding: 0.2rem 0.4rem;
-    border-radius: 6px;
-    font-size: 0.65rem;
+  .grade-badge {
+    font-size: 0.6rem;
+    font-weight: 800;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.3);
+  }
+
+  .sig-badge {
+    font-size: 0.6rem;
     font-weight: 700;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
     text-transform: uppercase;
   }
 
-  .price-info {
-    text-align: right;
-  }
-
-  .last-price {
-    display: block;
-    font-size: 1.25rem;
-    font-weight: 700;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .price-change {
-    font-size: 0.75rem;
-    font-weight: 600;
-  }
-
-  .price-change.positive { color: var(--accent-green); }
-  .price-change.negative { color: var(--accent-red); }
-
-  .chart-metrics-wrapper {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-
-  .chart-container {
-    margin: 0;
-    height: 60px;
-    width: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
+  .price-block { text-align: right; }
+  .main-price { font-size: 1.2rem; font-weight: 800; color: #f8fafc; }
+  .price-change { font-size: 0.75rem; font-weight: 600; margin-top: 0.1rem; }
 
   /* Metrics Grid */
-  .metrics-grid {
-    width: 100%;
+  .metrics-container {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 0.5rem;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.75rem;
     padding: 0.75rem;
-    background: rgba(0, 0, 0, 0.2);
-    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.3);
+    border-radius: 12px;
   }
 
-  .metric {
-    display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
+  .metric-item { display: flex; flex-direction: column; gap: 0.1rem; }
+  .m-label { 
+    font-size: 0.6rem; 
+    font-weight: 700; 
+    color: #94a3b8; 
+    text-transform: uppercase; 
+    letter-spacing: 0.02em;
+  }
+  .m-value { 
+    font-size: 1rem; 
+    font-weight: 800; 
+    color: #cbd5e1; /* Default soft grey-white */
+    text-shadow: 0 0 10px rgba(0,0,0,0.3);
   }
 
-  .metric .label {
-    font-size: 0.6rem;
-    color: var(--text-muted);
-    text-transform: uppercase;
-  }
+  /* Ensure dynamic colors override the default white */
+  .m-value.val--fire { color: #10b981 !important; text-shadow: 0 0 12px rgba(16,185,129,0.4); }
+  .m-value.val--hot  { color: #34d399 !important; }
+  .m-value.val--warm { color: #f59e0b !important; }
+  .m-value.val--danger { color: #f43f5e !important; }
+  .m-value.val--neutral { color: #64748b !important; }
 
-  .metric .value {
-    font-size: 0.75rem;
-    font-weight: 600;
-  }
-
-  .confidence-value {
-    color: var(--accent-purple);
-  }
-
-  .positive { color: var(--accent-green) !important; }
-  .negative { color: var(--accent-red) !important; }
-  .truncate {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  /* Advanced Metrics */
-  .advanced-metrics {
+  /* Execution Grid */
+  .execution-grid {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 0.75rem;
-    font-size: 0.75rem;
-    color: var(--text-muted);
-    background: rgba(0,0,0,0.15);
-    padding: 0.75rem;
-    border-radius: 8px;
   }
 
-  .small-metric {
+  .exec-block {
+    background: rgba(255, 255, 255, 0.03);
+    padding: 0.75rem;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.03);
+  }
+
+  .block-head { font-size: 0.55rem; font-weight: 800; color: #64748b; margin-bottom: 0.3rem; }
+  .val-large { 
+    font-size: 1.2rem; 
+    font-weight: 900; 
+    color: #ffffff;
+    letter-spacing: -0.01em;
+  }
+  .sub-info { font-size: 0.6rem; color: #475569; margin-top: 0.2rem; }
+
+  .target-row {
     display: flex;
     justify-content: space-between;
-    margin-bottom: 0.25rem;
+    font-size: 0.75rem;
+    margin-top: 0.2rem;
   }
 
-  .small-metric span:last-child {
-    font-weight: 500;
-    color: var(--text-main);
+  .t-label { color: #64748b; font-weight: 600; }
+  .font-bold { font-weight: 800; }
+
+  /* Intelligence */
+  .intel-footer {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
   }
 
-  @media (max-width: 768px) {
-    .signal-card {
-      padding: 1rem;
-      gap: 1rem;
-      border-radius: 12px;
-    }
-
-    .chart-metrics-wrapper {
-      flex-direction: row;
-      align-items: center;
-      gap: 1rem;
-    }
-
-    .chart-container {
-      width: 45%;
-      height: 70px;
-    }
-
-    .metrics-grid {
-      width: 55%;
-      gap: 0.75rem;
-      padding: 0;
-      background: transparent;
-    }
-
-    .metric .label {
-      font-size: 0.65rem;
-    }
-
-    .metric .value {
-      font-size: 0.85rem;
-    }
-
+  .regime-tag, .hunt-tag {
+    font-size: 0.65rem;
+    font-weight: 700;
+    padding: 0.3rem 0.6rem;
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.2);
+    color: #cbd5e1;
   }
 
-  @keyframes slideDown {
-    from { opacity: 0; transform: translateY(-10px); }
-    to { opacity: 1; transform: translateY(0); }
+  .hunt-tag { color: #f59e0b; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); }
+
+  .notes-container {
+    margin-top: -0.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
   }
+
+  .notes-toggle {
+    background: transparent;
+    border: none;
+    color: #64748b;
+    font-size: 0.55rem;
+    font-weight: 800;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0;
+    letter-spacing: 0.05em;
+    transition: color 0.2s;
+  }
+
+  .notes-toggle:hover { color: #94a3b8; }
+  .notes-toggle svg { transition: transform 0.3s ease; }
+  .notes-toggle svg.rotate { transform: rotate(180deg); }
+
+  .notes-line {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+    padding-top: 0.25rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+  }
+
+  .note-tag {
+    font-size: 0.55rem;
+    font-weight: 700;
+    color: #60a5fa;
+    background: rgba(96, 165, 250, 0.1);
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    text-transform: uppercase;
+  }
+
+  .sym-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .icon-copy-btn {
+    background: transparent;
+    border: none;
+    color: #94a3b8; /* Brighter slate for better contrast */
+    cursor: pointer;
+    padding: 0.2rem;
+    display: flex;
+    align-items: center;
+    transition: all 0.2s;
+    margin-top: 0.1rem;
+    filter: drop-shadow(0 0 8px rgba(0,0,0,0.3));
+  }
+
+  .icon-copy-btn:hover { color: #f8fafc; }
+
+  /* Colors */
+  .pos { color: #10b981; }
+  .neg { color: #f43f5e; }
+  .val--fire { color: #34d399; }
+  .val--danger { color: #fb7185; }
+
+  .bg-green { background: rgba(16, 185, 129, 0.1); color: #34d399; }
+  .bg-amber { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
+  .bg-rose { background: rgba(244, 63, 94, 0.1); color: #fb7185; }
+  .bg-slate { background: rgba(100, 116, 139, 0.1); color: #94a3b8; }
 </style>
