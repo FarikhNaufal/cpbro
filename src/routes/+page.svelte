@@ -717,12 +717,6 @@
   }
 
   /* History Specific */
-  .history-desc {
-    font-size: 0.875rem;
-    color: var(--text-muted);
-    margin-bottom: 1rem;
-  }
-
   .history-item-wrapper {
     position: relative;
     display: flex;
