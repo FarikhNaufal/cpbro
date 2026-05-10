@@ -27,6 +27,7 @@
   let showToast = $state(false);
   let isRefreshing = $state(false);
   let lastFetchedMinute = -1;
+  let activeTab = $state('live');
 
   async function handleRefresh() {
     isRefreshing = true;
@@ -55,8 +56,8 @@
         hour12: false
       }) + ' WIB';
 
-      // Check if it's the 3rd second of the minute
-      if (now.getSeconds() === 3 && now.getMinutes() !== lastFetchedMinute) {
+      // Check if it's the 10th second of the minute
+      if (now.getSeconds() === 10 && now.getMinutes() !== lastFetchedMinute) {
         lastFetchedMinute = now.getMinutes();
         handleRefresh(); // Now calls the function that shows the toast
       }
@@ -150,44 +151,93 @@
       </div>
     </section>
 
-    <!-- Signals List -->
-    <section class="signals-section">
-      <div class="section-header">
-        <h2 class="section-title">
-          Active Signals
-          <button 
-            class="refresh-btn {isRefreshing ? 'spinning' : ''}" 
-            onclick={handleRefresh} 
-            disabled={isRefreshing}
-            title="Refresh Market Data"
-          >
-            <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="3" fill="none"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+    <!-- Tab Switcher -->
+    <div class="tab-container glass-panel">
+      <button 
+        class="tab-btn {activeTab === 'live' ? 'active' : ''}" 
+        onclick={() => activeTab = 'live'}
+      >
+        <span class="tab-icon">📡</span>
+        LIVE SCANNER
+      </button>
+      <button 
+        class="tab-btn {activeTab === 'history' ? 'active' : ''}" 
+        onclick={() => activeTab = 'history'}
+      >
+        <span class="tab-icon">🎯</span>
+        SNIPER A & S
+        {#if data.historyData.length > 0}
+          <span class="count-badge">{data.historyData.length}</span>
+        {/if}
+      </button>
+    </div>
+
+    <!-- Signals List / History -->
+    {#if activeTab === 'live'}
+      <section class="signals-section" transition:slide>
+        <div class="section-header">
+          <h2 class="section-title">
+            Active Signals
+            <button 
+              class="refresh-btn {isRefreshing ? 'spinning' : ''}" 
+              onclick={handleRefresh} 
+              disabled={isRefreshing}
+              title="Refresh Market Data"
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="3" fill="none"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            </button>
+          </h2>
+          <button class="copy-btn glass-panel" onclick={copyJson}>
+            {#if copied}
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" class="success-icon"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              Copied!
+            {:else}
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+              Copy JSON
+            {/if}
           </button>
-        </h2>
-        <button class="copy-btn glass-panel" onclick={copyJson}>
-          {#if copied}
-            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" class="success-icon"><polyline points="20 6 9 17 4 12"></polyline></svg>
-            Copied!
-          {:else}
-            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-            Copy JSON
-          {/if}
-        </button>
-      </div>
-      {#if signals.length === 0}
-        <div class="empty-signals glass-panel">
-          <div class="empty-icon">🔭</div>
-          <h3>No Signals Found</h3>
-          <p>Market conditions don't meet sniper criteria. Waiting for high-confluence setups...</p>
         </div>
-      {:else}
-        <div class="signals-grid">
-          {#each signals as signal}
-            <SignalCard {signal} {apiData} btcScore={apiData.btc_strength_score} />
-          {/each}
+        {#if signals.length === 0}
+          <div class="empty-signals glass-panel">
+            <div class="empty-icon">🔭</div>
+            <h3>No Signals Found</h3>
+            <p>Market conditions don't meet sniper criteria. Waiting for high-confluence setups...</p>
+          </div>
+        {:else}
+          <div class="signals-grid">
+            {#each signals as signal}
+              <SignalCard {signal} {apiData} btcScore={apiData.btc_strength_score} />
+            {/each}
+          </div>
+        {/if}
+      </section>
+    {:else}
+      <section class="signals-section" transition:slide>
+        <div class="section-header">
+          <h2 class="section-title">
+            Sniper History (2H)
+          </h2>
         </div>
-      {/if}
-    </section>
+        {#if data.historyData.length === 0}
+          <div class="empty-signals glass-panel">
+            <div class="empty-icon">📂</div>
+            <h3>No History Recorded</h3>
+            <p>No Grade A or S signals have been detected in the last 24 hours.</p>
+          </div>
+        {:else}
+          <div class="signals-grid">
+            {#each data.historyData as signal}
+              <div class="history-item-wrapper">
+                <div class="timestamp-label">
+                  {new Date(signal.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                </div>
+                <SignalCard {signal} apiData={null} btcScore={0} />
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </section>
+    {/if}
   {/if}
 
   <!-- Success Notification (Toast) -->
@@ -621,5 +671,75 @@
       grid-template-columns: 1fr;
       gap: 1rem;
     }
+  }
+
+  /* Tab Styles */
+  .tab-container {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    margin-bottom: 2rem;
+    width: fit-content;
+  }
+
+  .tab-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1.5rem;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 0.875rem;
+    font-weight: 700;
+    cursor: pointer;
+    border-radius: 12px;
+    transition: all 0.2s ease;
+    position: relative;
+  }
+
+  .tab-btn.active {
+    background: rgba(59, 130, 246, 0.15);
+    color: var(--accent-blue);
+  }
+
+  .tab-icon {
+    font-size: 1.1rem;
+  }
+
+  .count-badge {
+    background: var(--accent-blue);
+    color: #fff;
+    font-size: 0.7rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: 10px;
+    margin-left: 0.25rem;
+  }
+
+  /* History Specific */
+  .history-desc {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    margin-bottom: 1rem;
+  }
+
+  .history-item-wrapper {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .timestamp-label {
+    font-size: 0.7rem;
+    font-weight: 800;
+    color: var(--accent-blue);
+    background: rgba(59, 130, 246, 0.1);
+    padding: 0.2rem 0.6rem;
+    border-radius: 6px;
+    width: fit-content;
+    margin-bottom: -0.25rem;
+    margin-left: 0.5rem;
+    border: 1px solid rgba(59, 130, 246, 0.2);
   }
 </style>

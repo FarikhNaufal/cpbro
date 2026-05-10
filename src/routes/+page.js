@@ -1,26 +1,25 @@
 export async function load({ fetch }) {
+  const baseUrl = 'https://api.farikh.my.id/v1/crypto-bro';
+  
   try {
-    const response = await fetch('https://api.farikh.my.id/v1/crypto-bro/analyze-market-v2', {
-      headers: {
-        'accept': 'application/json'
-      }
-    });
+    const [marketRes, historyRes] = await Promise.all([
+      fetch(`${baseUrl}/analyze-market-v2`),
+      fetch(`${baseUrl}/history`)
+    ]);
     
-    if (!response.ok) {
-      throw new Error(`API returned status ${response.status}`);
-    }
+    const marketJson = await marketRes.json();
+    const historyJson = await historyRes.json();
     
-    const result = await response.json();
-    
-    // Asumsi response format: { status: 200, data: { ... } }
     return {
-      apiData: result.data,
+      apiData: marketJson.data,
+      historyData: historyJson.data || [],
       error: null
     };
   } catch (error) {
     console.error("Failed to fetch market data:", error);
     return {
       apiData: null,
+      historyData: [],
       error: error.message
     };
   }
