@@ -72,7 +72,7 @@
     const lastPrice = signal.last_price || 1;
     const atr = signal.atr || 0;
     const atrPct = (atr / lastPrice) * 100;
-    const pct = (f * 100).toFixed(4);
+    const fPct = f * 100;
     
     // Dynamic threshold from backend line 384
     let threshold = atrPct * 0.01;
@@ -82,12 +82,12 @@
     if (Math.abs(f) > threshold) {
       const isCrowded = (f > 0 && isLong) || (f < 0 && !isLong);
       return { 
-        label: `${f > 0 ? '+' : ''}${pct}%`, 
+        label: `${f > 0 ? '+' : ''}${fPct.toFixed(2)}%`, 
         cls: isCrowded ? 'val--danger' : 'val--warm', 
-        tip: `Threshold: ${threshold.toFixed(4)}` 
+        tip: `Threshold: ${threshold}` 
       };
     }
-    return { label: `${pct}%`, cls: 'val--neutral', tip: 'Healthy Funding' };
+    return { label: `${fPct.toFixed(2)}%`, cls: 'val--neutral', tip: 'Healthy Funding' };
   });
 
   // OI Change — Matches 1.5% Aggressive threshold
@@ -108,9 +108,9 @@
   // Confluence Rating color
   let confluenceColorClass = $derived.by(() => {
     const r = signal.confluence_rating ?? '';
-    if (r.includes('S')) return 'val--fire';
-    if (r.includes('A')) return 'val--hot';
-    if (r.includes('B')) return 'val--warm';
+    if (r.startsWith('Grade S')) return 'val--gold';
+    if (r.startsWith('Grade A')) return 'val--green';
+    if (r.startsWith('Grade B') || r.startsWith('Grade C')) return 'val--gray';
     return 'val--neutral';
   });
 
@@ -184,7 +184,7 @@
         </div>
       </div>
       <div class="price-block">
-        <div class="main-price">${signal.last_price?.toFixed(4)}</div>
+        <div class="main-price">${signal.last_price}</div>
         <div class="price-change {signal.price_change_24h >= 0 ? 'pos' : 'neg'}">
           {signal.price_change_24h >= 0 ? '▲' : '▼'} {Math.abs(signal.price_change_24h)}%
         </div>
@@ -200,15 +200,15 @@
     <div class="metrics-container">
       <div class="metric-item">
         <span class="m-label">RSI</span>
-        <span class="m-value {rsiColorClass}">{signal.rsi_15m}</span>
+        <span class="m-value {rsiColorClass}">{signal.rsi_15m?.toFixed(2)}</span>
       </div>
       <div class="metric-item">
         <span class="m-label">MFI</span>
-        <span class="m-value {mfiColorClass}">{signal.mfi_15m}</span>
+        <span class="m-value {mfiColorClass}">{signal.mfi_15m?.toFixed(2)}</span>
       </div>
       <div class="metric-item">
         <span class="m-label">ADX</span>
-        <span class="m-value">{signal.adx_15m}</span>
+        <span class="m-value">{signal.adx_15m?.toFixed(2)}</span>
       </div>
       <div class="metric-item">
         <span class="m-label">OI</span>
@@ -236,6 +236,10 @@
         <div class="target-row">
           <span class="t-label">TP1</span>
           <span class="pos font-bold">${signal.tp1}</span>
+        </div>
+        <div class="target-row">
+          <span class="t-label">TP2</span>
+          <span class="pos font-bold">${signal.tp2}</span>
         </div>
         <div class="target-row">
           <span class="t-label">SL</span>
@@ -349,11 +353,10 @@
   }
 
   .grade-badge {
-    font-size: 0.6rem;
-    font-weight: 800;
-    padding: 0.1rem 0.4rem;
-    border-radius: 4px;
-    background: rgba(0, 0, 0, 0.3);
+    font-size: 0.7rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
   }
 
   .sig-badge {
@@ -372,25 +375,35 @@
   .metrics-container {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
-    gap: 0.75rem;
+    gap: 0.5rem;
     padding: 0.75rem;
-    background: rgba(15, 23, 42, 0.3);
+    background: rgba(15, 23, 42, 0.4);
     border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.03);
   }
 
-  .metric-item { display: flex; flex-direction: column; gap: 0.1rem; }
+  .metric-item { 
+    display: flex; 
+    flex-direction: column; 
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    text-align: center;
+  }
   .m-label { 
-    font-size: 0.6rem; 
-    font-weight: 700; 
-    color: #94a3b8; 
+    font-size: 0.55rem; 
+    font-weight: 800; 
+    color: #64748b; 
     text-transform: uppercase; 
-    letter-spacing: 0.02em;
+    letter-spacing: 0.05em;
   }
   .m-value { 
-    font-size: 1rem; 
-    font-weight: 800; 
-    color: #cbd5e1; /* Default soft grey-white */
-    text-shadow: 0 0 10px rgba(0,0,0,0.3);
+    font-size: 0.9rem; 
+    font-weight: 900; 
+    color: #f8fafc;
+    width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   /* Ensure dynamic colors override the default white */
@@ -399,6 +412,17 @@
   .m-value.val--warm { color: #f59e0b !important; }
   .m-value.val--danger { color: #f43f5e !important; }
   .m-value.val--neutral { color: #64748b !important; }
+
+  /* Grade Specific Text Colors (Solid & Bright) */
+  .grade-badge.val--gold {
+    color: #FFD700;
+  }
+  .grade-badge.val--green {
+    color: #4ADE80;
+  }
+  .grade-badge.val--gray {
+    color: #94A3B8;
+  }
 
   /* Execution Grid */
   .execution-grid {
