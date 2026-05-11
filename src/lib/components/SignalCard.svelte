@@ -54,13 +54,16 @@
     return 'val--neutral';
   });
 
-  // MFI Color
+  // MFI Color — Aligned with Adaptive V2.1 (48/52)
   let mfiColorClass = $derived.by(() => {
     const m = signal.mfi_15m;
-    if (isLong && m < 30) return 'val--fire';
-    if (isLong && m < 40) return 'val--warm';
-    if (!isLong && m > 70) return 'val--fire';
-    if (!isLong && m > 60) return 'val--warm';
+    if (isLong) {
+      if (m < 35) return 'val--fire';
+      if (m < 48) return 'val--warm';
+    } else {
+      if (m > 65) return 'val--fire';
+      if (m > 52) return 'val--warm';
+    }
     return 'val--neutral';
   });
 
@@ -106,6 +109,7 @@
   // Confluence Rating color
   let confluenceColorClass = $derived.by(() => {
     const r = signal.confluence_rating ?? '';
+    if (r.includes('WAIT (Price Run)')) return 'val--warm';
     if (r.startsWith('Grade S')) return 'val--gold';
     if (r.startsWith('Grade A')) return 'val--green';
     if (r.startsWith('Grade B') || r.startsWith('Grade C')) return 'val--gray';
@@ -138,8 +142,11 @@
     const hasDiv = notes.some(n => n.toLowerCase().includes('divergence'));
 
     const rsiReady = isLong ? signal.rsi_15m < 35 : signal.rsi_15m > 65;
-    const mfiReady = isLong ? signal.mfi_15m < 30 : signal.mfi_15m > 70;
+    const mfiReady = isLong ? signal.mfi_15m < 48 : signal.mfi_15m > 52;
 
+    if (signal.confluence_rating === 'WAIT (Price Run)') {
+      return { text: '⏳ PRICE RUN', bg: 'bg-amber' };
+    }
     if (isDangerTrend) return { text: '⚠️ STRONG TREND', bg: 'bg-rose' };
     if ((rsiReady || hasDiv) && (mfiReady || hasHunt || hasEngulf) && btcFilterOk) {
       return { text: '🎯 EXECUTE TARGET', bg: 'bg-green' };
@@ -175,7 +182,10 @@
           </button>
         </div>
         <div class="badge-row">
-          <span class="grade-badge {confluenceColorClass}">{signal.confluence_rating}</span>
+          <div class="grade-badge {confluenceColorClass}">
+            {signal.confluence_rating}
+            <span class="score-tag">[{signal.score?.toFixed(2)}]</span>
+          </div>
           <span class="sig-badge" style="color:{getSignalColor(signal.signal)}; border: 1px solid {getSignalColor(signal.signal)}40">
             {signal.signal?.replace('_', ' ')}
           </span>
@@ -346,23 +356,37 @@
 
   .badge-row {
     display: flex;
+    align-items: center;
     gap: 0.4rem;
-    margin-top: 0.3rem;
+    margin-top: 0.35rem;
+    flex-wrap: wrap;
   }
 
-  .grade-badge {
-    font-size: 0.7rem;
-    font-weight: 900;
-    text-transform: uppercase;
+  .grade-badge { 
+    font-size: 0.7rem; 
+    font-weight: 900; 
+    text-transform: uppercase; 
     letter-spacing: 0.05em;
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    white-space: nowrap;
+  }
+  .score-tag {
+    font-size: 0.65rem;
+    opacity: 0.7;
+    font-weight: 800;
+    color: #94a3b8;
   }
 
   .sig-badge {
     font-size: 0.6rem;
-    font-weight: 700;
-    padding: 0.1rem 0.4rem;
-    border-radius: 4px;
+    font-weight: 900;
+    padding: 0.2rem 0.5rem;
+    border-radius: 6px;
     text-transform: uppercase;
+    background: rgba(0,0,0,0.2);
+    white-space: nowrap;
   }
 
   .price-block { text-align: right; }
