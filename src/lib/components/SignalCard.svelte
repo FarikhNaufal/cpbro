@@ -7,20 +7,50 @@
   let copiedCard = $state(false);
   let showNotes = $state(false);
 
+  // Helper to limit decimals for high-precision coins
+  function formatPrice(val) {
+    if (!val) return '0.00';
+    const num = typeof val === 'string' ? parseFloat(val) : val;
+    if (isNaN(num)) return val;
+    // Format to max 5 decimals, but remove trailing zeros
+    return Number(num.toFixed(5)).toString();
+  }
+
   async function copySignalJson() {
+    const payload = apiData ? {
+      market_sentiment: apiData.market_sentiment,
+      btc_trend: apiData.btc_trend,
+      btc_strength_score: apiData.btc_strength_score,
+      market_volatility: apiData.market_volatility,
+      generated_at: apiData.generated_at,
+      ...signal
+    } : { ...signal };
+    
+    const text = JSON.stringify(payload, null, 2);
+
     try {
-      const payload = apiData ? {
-        market_sentiment: apiData.market_sentiment,
-        btc_trend: apiData.btc_trend,
-        btc_strength_score: apiData.btc_strength_score,
-        market_volatility: apiData.market_volatility,
-        generated_at: apiData.generated_at,
-        ...signal
-      } : { ...signal };
-      
-      await navigator.clipboard.writeText(JSON.stringify(payload));
-      copiedCard = true;
-      setTimeout(() => copiedCard = false, 2000);
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        copiedCard = true;
+      } else {
+        // Fallback for non-secure contexts (HTTP)
+        const textArea = document.createElement("textarea");
+        textArea.value = text;
+        textArea.style.position = "fixed";
+        textArea.style.left = "-9999px";
+        textArea.style.top = "0";
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+        const success = document.execCommand('copy');
+        document.body.removeChild(textArea);
+        if (success) {
+          copiedCard = true;
+        }
+      }
+      if (copiedCard) {
+        setTimeout(() => copiedCard = false, 2000);
+      }
     } catch (err) {
       console.error('Failed to copy', err);
     }
@@ -181,11 +211,15 @@
             {/if}
           </button>
         </div>
-        <div class="badge-row">
-          <div class="grade-badge {confluenceColorClass}">
+        
+        <div class="grade-row">
+          <div class="grade-badge {confluenceColorClass}" title={signal.confluence_rating}>
             {signal.confluence_rating}
-            <span class="score-tag">[{signal.score?.toFixed(2)}]</span>
           </div>
+        </div>
+
+        <div class="status-row">
+          <span class="score-tag">[{signal.score?.toFixed(2)}]</span>
           <span class="sig-badge" style="color:{getSignalColor(signal.signal)}; border: 1px solid {getSignalColor(signal.signal)}40">
             {signal.signal?.replace('_', ' ')}
           </span>
@@ -236,22 +270,22 @@
     <div class="execution-grid">
       <div class="exec-block">
         <div class="block-head">ENTRY ZONE</div>
-        <div class="val-large">${signal.entry_zone}</div>
+        <div class="val-large">${formatPrice(signal.entry_zone)}</div>
         <div class="sub-info">Hold: {signal.max_hold_candles}c ({signal.max_hold_minutes}m)</div>
       </div>
       <div class="exec-block">
         <div class="block-head">TARGET / RISK</div>
         <div class="target-row">
           <span class="t-label">TP1</span>
-          <span class="pos font-bold">${signal.tp1}</span>
+          <span class="pos font-bold">${formatPrice(signal.tp1)}</span>
         </div>
         <div class="target-row">
           <span class="t-label">TP2</span>
-          <span class="pos font-bold">${signal.tp2}</span>
+          <span class="pos font-bold">${formatPrice(signal.tp2)}</span>
         </div>
         <div class="target-row">
           <span class="t-label">SL</span>
-          <span class="neg font-bold">${signal.stop_loss}</span>
+          <span class="neg font-bold">${formatPrice(signal.stop_loss)}</span>
         </div>
       </div>
     </div>
@@ -346,47 +380,65 @@
     align-items: center;
   }
 
+  .sym-block {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    min-width: 0;
+  }
+
+  .sym-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
   .sym-block h3 {
-    font-size: 1.4rem;
+    font-size: 1.3rem;
     font-weight: 900;
     margin: 0;
     letter-spacing: -0.02em;
     color: #f8fafc;
   }
 
-  .badge-row {
+  .grade-row {
+    display: flex;
+    min-width: 0;
+  }
+
+  .grade-badge {
+    font-size: 0.7rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 120px; /* Protect price block from clashing */
+  }
+
+  .status-row {
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    margin-top: 0.35rem;
-    flex-wrap: wrap;
-  }
-
-  .grade-badge { 
-    font-size: 0.7rem; 
-    font-weight: 900; 
-    text-transform: uppercase; 
-    letter-spacing: 0.05em;
-    display: flex;
-    align-items: center;
-    gap: 0.3rem;
-    white-space: nowrap;
-  }
-  .score-tag {
-    font-size: 0.65rem;
-    opacity: 0.7;
-    font-weight: 800;
-    color: #94a3b8;
   }
 
   .sig-badge {
-    font-size: 0.6rem;
+    font-size: 0.55rem;
     font-weight: 900;
-    padding: 0.2rem 0.5rem;
-    border-radius: 6px;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
     text-transform: uppercase;
     background: rgba(0,0,0,0.2);
     white-space: nowrap;
+  }
+
+  .score-tag {
+    font-size: 0.65rem;
+    font-weight: 800;
+    color: #ffffff; /* White color for contrast */
+    opacity: 1;
+    font-family: 'JetBrains Mono', monospace;
   }
 
   .price-block { text-align: right; }
