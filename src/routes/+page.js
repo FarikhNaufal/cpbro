@@ -1,5 +1,7 @@
+import { PUBLIC_API_HOST } from '$env/static/public';
+
 export async function load({ fetch }) {
-  const baseUrl = 'https://api.farikh.my.id/v1/crypto-bro';
+  const baseUrl = PUBLIC_API_HOST;
   
   try {
     const [marketRes, historyRes] = await Promise.all([

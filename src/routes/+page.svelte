@@ -56,16 +56,16 @@
         hour12: false
       }) + ' WIB';
 
-      // Check if it's the 10th second of the minute
-      if (now.getSeconds() === 10 && now.getMinutes() !== lastFetchedMinute) {
-        lastFetchedMinute = now.getMinutes();
-        handleRefresh(); // Now calls the function that shows the toast
+      // Auto-fetch every 10 seconds aligned to wall clock (:10, :20)
+      if ((now.getSeconds() == 6 || now.getSeconds() == 12) && !isRefreshing) {
+        handleRefresh();
       }
     };
 
     updateClock();
-    const interval = setInterval(updateClock, 1000);
-    return () => clearInterval(interval);
+    const clockInterval = setInterval(updateClock, 1000);
+
+    return () => clearInterval(clockInterval);
   });
 
   async function copyJson() {
@@ -82,6 +82,23 @@
       setTimeout(() => copied = false, 2000);
     } catch (err) {
       console.error('Failed to copy', err);
+    }
+  }
+
+  async function copyHistoryJson() {
+    if (!data.historyData || data.historyData.length === 0) return;
+    try {
+      const payload = {
+        status: 200,
+        success: true,
+        message: "history",
+        data: data.historyData
+      };
+      await navigator.clipboard.writeText(JSON.stringify(payload));
+      copied = true;
+      setTimeout(() => copied = false, 2000);
+    } catch (err) {
+      console.error('Failed to copy history', err);
     }
   }
 </script>
@@ -165,7 +182,7 @@
         onclick={() => activeTab = 'history'}
       >
         <span class="tab-icon">🎯</span>
-        SNIPER A & S
+        SNIPER S+ & S
         {#if data.historyData.length > 0}
           <span class="count-badge">{data.historyData.length}</span>
         {/if}
@@ -217,6 +234,15 @@
           <h2 class="section-title">
             Sniper History (2H)
           </h2>
+          <button class="copy-btn glass-panel" onclick={copyHistoryJson}>
+            {#if copied}
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none" class="success-icon"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              Copied!
+            {:else}
+              <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+              Copy JSON
+            {/if}
+          </button>
         </div>
         {#if data.historyData.length === 0}
           <div class="empty-signals glass-panel">
