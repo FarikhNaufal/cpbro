@@ -8,18 +8,16 @@
   let showNotes = $state(false);
 
   async function copySignalJson() {
-    if (!apiData) return;
     try {
-      const payload = {
+      const payload = apiData ? {
         market_sentiment: apiData.market_sentiment,
         btc_trend: apiData.btc_trend,
         btc_strength_score: apiData.btc_strength_score,
         market_volatility: apiData.market_volatility,
-        long_signals: apiData.long_signals,
-        short_signals: apiData.short_signals,
         generated_at: apiData.generated_at,
         ...signal
-      };
+      } : { ...signal };
+      
       await navigator.clipboard.writeText(JSON.stringify(payload));
       copiedCard = true;
       setTimeout(() => copiedCard = false, 2000);
