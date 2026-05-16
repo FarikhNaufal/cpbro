@@ -4,24 +4,17 @@ export async function load({ fetch }) {
   const baseUrl = PUBLIC_API_HOST;
   
   try {
-    const [marketRes, historyRes] = await Promise.all([
-      fetch(`${baseUrl}/analyze-market-v2`),
-      fetch(`${baseUrl}/history`)
-    ]);
-    
+    const marketRes = await fetch(`${baseUrl}/analyze-market-v2`);
     const marketJson = await marketRes.json();
-    const historyJson = await historyRes.json();
     
     return {
       apiData: marketJson.data,
-      historyData: historyJson.data || [],
       error: null
     };
   } catch (error) {
     console.error("Failed to fetch market data:", error);
     return {
       apiData: null,
-      historyData: [],
       error: error.message
     };
   }

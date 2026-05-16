@@ -17,14 +17,32 @@
   }
 
   async function copySignalJson() {
-    const payload = apiData ? {
-      market_sentiment: apiData.market_sentiment,
-      btc_trend: apiData.btc_trend,
-      btc_strength_score: apiData.btc_strength_score,
-      market_volatility: apiData.market_volatility,
-      generated_at: apiData.generated_at,
-      ...signal
-    } : { ...signal };
+    const payload = {
+      status: 200,
+      success: true,
+      message: "berhasil",
+      data: {
+        market_sentiment: apiData?.market_sentiment || "Unknown",
+        btc_trend: apiData?.btc_trend || "Unknown",
+        btc_strength_score: apiData?.btc_strength_score || 0,
+        market_volatility: apiData?.market_volatility || "Unknown",
+        generated_at: apiData?.generated_at || new Date().toISOString(),
+        execute_signals: null,
+        gemini_watchlist: null,
+        local_watchlist: null,
+        rejected_signals: null
+      }
+    };
+
+    if (signal.telegram_level === 'EXECUTE') {
+      payload.data.execute_signals = [signal];
+    } else if (signal.telegram_level === 'WATCH' || signal.telegram_level === 'AI_ERROR_REVIEW') {
+      payload.data.gemini_watchlist = [signal];
+    } else if (signal.final_status === 'LOCAL_WATCH') {
+      payload.data.local_watchlist = [signal];
+    } else {
+      payload.data.rejected_signals = [signal];
+    }
     
     const text = JSON.stringify(payload, null, 2);
 
@@ -65,90 +83,82 @@
 
   // Helpers
   let isLong = $derived(signal?.signal?.includes('LONG') ?? false);
+  let aiData = $derived(signal?.ai || {});
 
-  // RSI Color — Updated to match Backend V2.1 logic
+  // RSI Color — Matching cryptoV2 determineSetup
   let rsiColorClass = $derived.by(() => {
-    const r = signal.rsi_15m;
-    const notes = signal.notes ?? [];
-    const hasVolSpike = signal.volume_spike;
+    const r = aiData.rsi ?? signal.rsi_15m ?? 0;
+    const slope = aiData.rsi_slope ?? 0;
 
     if (isLong) {
-      if (r < 30) return 'val--fire'; // Extreme Oversold
-      if (r < 42) return 'val--warm'; // Normal Dip
-      if (r >= 42 && r <= 55 && hasVolSpike) return 'val--hot'; // Mid-range Momentum
+      if (r < 30) return 'val--fire'; // range_reversal / extreme dip
+      if (r >= 30 && r <= 55 && slope > 0) return 'val--hot'; // trend_pullback
+      return 'val--neutral';
     } else {
-      if (r > 70) return 'val--fire'; // Extreme Overbought
-      if (r > 58) return 'val--warm'; // Normal Rip
-      if (r >= 45 && r <= 58 && hasVolSpike) return 'val--hot'; // Mid-range Momentum
+      if (r > 70) return 'val--fire'; // range_reversal
+      if ((r >= 65 || (r > 50 && slope < 0)) && slope < 0) return 'val--hot'; // trend_pullback
+      return 'val--neutral';
     }
-    return 'val--neutral';
   });
 
-  // MFI Color — Aligned with Adaptive V2.1 (48/52)
+  // MFI Color — Matching cryptoV2 calculateV3Score penalties
   let mfiColorClass = $derived.by(() => {
-    const m = signal.mfi_15m;
+    const m = aiData.mfi ?? signal.mfi_15m ?? 0;
+    const slope = aiData.mfi_slope ?? 0;
+
     if (isLong) {
-      if (m < 35) return 'val--fire';
-      if (m < 48) return 'val--warm';
+      if (m > 80) return 'val--danger'; // Penalty anomaly
+      if (slope > 0 && m < 75) return 'val--hot'; // Momentum boost
     } else {
-      if (m > 65) return 'val--fire';
-      if (m > 52) return 'val--warm';
+      if (m < 20) return 'val--danger'; // Penalty anomaly
+      if (slope < 0) return 'val--hot'; // Valid momentum
     }
     return 'val--neutral';
   });
 
-  // Funding Rate — Precise sync with Backend dynamic threshold (atrPct * 0.01)
+  // Funding Rate — Matching cryptoV2 calculateV3Score penalties (0.0005)
   let fundingLabel = $derived.by(() => {
-    const f = signal.funding_rate;
-    const lastPrice = signal.last_price || 1;
-    const atr = signal.atr || 0;
-    const atrPct = (atr / lastPrice) * 100;
+    const f = aiData.funding_rate ?? signal.funding_rate ?? 0;
     const fPct = f * 100;
     
-    // Dynamic threshold from backend line 384
-    let threshold = atrPct * 0.01;
-    if (threshold < 0.005) threshold = 0.005;
-    if (threshold > 0.03) threshold = 0.03;
+    // Fixed threshold from backend
+    const threshold = 0.0005;
 
     if (Math.abs(f) > threshold) {
-      const isCrowded = (f > 0 && isLong) || (f < 0 && !isLong);
+      const isCrowded = (f > threshold && isLong) || (f < -threshold && !isLong);
       return { 
-        label: `${f > 0 ? '+' : ''}${fPct.toFixed(2)}%`, 
+        label: `${f > 0 ? '+' : ''}${fPct.toFixed(3)}%`, 
         cls: isCrowded ? 'val--danger' : 'val--warm', 
-        tip: `Threshold: ${threshold}` 
+        tip: `Threshold: 0.05%` 
       };
     }
-    return { label: `${fPct.toFixed(2)}%`, cls: 'val--neutral', tip: 'Healthy Funding' };
+    return { label: `${fPct.toFixed(3)}%`, cls: 'val--neutral', tip: 'Healthy Funding' };
   });
 
-  // OI Change — Matches 1.5% Aggressive threshold
+  // OI Change — Matching cryptoV2 calculateV3Score
   let oiLabel = $derived.by(() => {
-    const oi = signal.oi_change;
-    const notes = signal.notes ?? [];
-    if (!oi && oi !== 0) return { label: 'N/A', cls: 'val--neutral' };
+    const oi = aiData.oi_change ?? signal.oi_change ?? 0;
     
-    const hasConfirm = notes.some(n => n.includes('2-Candle Confirm'));
-    
-    if (Math.abs(oi) > 1.5) {
-      if (hasConfirm) return { label: `${oi > 0 ? '+' : ''}${oi.toFixed(2)}%`, cls: 'val--fire' };
-      return { label: `${oi > 0 ? '+' : ''}${oi.toFixed(2)}%`, cls: 'val--warm' };
+    if (oi > 1.5) {
+      return { label: `+${oi.toFixed(2)}%`, cls: 'val--fire' };
+    } else if (oi < 0 && isLong) {
+      return { label: `${oi.toFixed(2)}%`, cls: 'val--danger' }; // Penalty
     }
-    return { label: `${oi.toFixed(2)}%`, cls: 'val--neutral' };
+    return { label: `${oi > 0 ? '+' : ''}${oi.toFixed(2)}%`, cls: 'val--neutral' };
   });
 
   // Confluence Rating color
   let confluenceColorClass = $derived.by(() => {
     const r = signal.confluence_rating ?? '';
-    if (r.includes('WAIT (Price Run)')) return 'val--warm';
-    if (r.startsWith('Grade S')) return 'val--gold';
-    if (r.startsWith('Grade A')) return 'val--green';
-    if (r.startsWith('Grade B') || r.startsWith('Grade C')) return 'val--gray';
+    if (r === 'HIGH') return 'val--green';
+    if (r === 'MEDIUM') return 'val--warm';
+    if (r === 'LOW') return 'val--gray';
     return 'val--neutral';
   });
 
-  // ADX Logic
-  let isDangerTrend = $derived(signal.adx_15m > 45);
-  let adxRising = $derived(signal.adx_15m > (signal.raw_klines?.[signal.raw_klines.length - 2]?.adx ?? signal.adx_15m));
+  // ADX Logic aligned with backend (Overextended threshold)
+  let isDangerTrend = $derived(signal.setup_type === 'overextended');
+  let adxRising = $derived((aiData.adx_slope ?? 0) > 0);
   
   let isAntiShort = $derived(!isLong && btcScore >= 8);
   let btcFilterOk = $derived(isLong
@@ -164,24 +174,15 @@
     return 'regime-chop';
   });
 
-  // Master Status based on new fields
+  // Master Status based on backend output
   let masterStatus = $derived.by(() => {
-    const notes = signal.notes ?? [];
-    const hasHunt = notes.some(n => n.toLowerCase().includes('hunting'));
-    const hasEngulf = notes.some(n => n.toLowerCase().includes('engulfing'));
-    const hasDiv = notes.some(n => n.toLowerCase().includes('divergence'));
-
-    const rsiReady = isLong ? signal.rsi_15m < 35 : signal.rsi_15m > 65;
-    const mfiReady = isLong ? signal.mfi_15m < 48 : signal.mfi_15m > 52;
-
-    if (signal.confluence_rating === 'WAIT (Price Run)') {
-      return { text: '⏳ PRICE RUN', bg: 'bg-amber' };
+    if (signal.setup_type === 'overextended') {
+      return { text: '⚠️ OVEREXTENDED TREND', bg: 'bg-rose' };
     }
-    if (isDangerTrend) return { text: '⚠️ STRONG TREND', bg: 'bg-rose' };
-    if ((rsiReady || hasDiv) && (mfiReady || hasHunt || hasEngulf) && btcFilterOk) {
+    if (signal.confidence === 'HIGH') {
       return { text: '🎯 EXECUTE TARGET', bg: 'bg-green' };
     }
-    if (rsiReady || hasHunt) {
+    if (signal.confidence === 'MEDIUM') {
       return { text: '🔍 STALKING...', bg: 'bg-amber' };
     }
     return { text: "⚖️ NEUTRAL ZONE", bg: 'bg-slate' };

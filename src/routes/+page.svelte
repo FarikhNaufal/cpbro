@@ -1,13 +1,18 @@
 <script>
-  import { onMount } from 'svelte';
+import { onMount } from 'svelte';
   import { invalidateAll } from '$app/navigation';
   import { slide } from 'svelte/transition';
   import SignalCard from "$lib/components/SignalCard.svelte";
+  import { PUBLIC_API_HOST } from '$env/static/public';
 
   let { data } = $props();
   let apiData = $derived(data.apiData);
   let errorMsg = $derived(data.error);
-  let signals = $derived(apiData?.signals || []);
+  
+  let executeSignals = $derived(apiData?.execute_signals || []);
+  let geminiWatchlist = $derived(apiData?.gemini_watchlist || []);
+  let localWatchlist = $derived(apiData?.local_watchlist || []);
+  let rejectedSignals = $derived(apiData?.rejected_signals || []);
 
   // Format date
   let generatedAt = $derived(apiData ? new Date(apiData.generated_at).toLocaleString('en-US', {
@@ -27,12 +32,40 @@
   let showToast = $state(false);
   let isRefreshing = $state(false);
   let lastFetchedMinute = -1;
-  let activeTab = $state('live');
+  let activeTab = $state('execute'); // execute, gemini, local, rejected, history
+
+  let historyData = $state([]);
+  let isFetchingHistory = $state(false);
+  let hasFetchedHistory = $state(false);
+
+  $effect(() => {
+    if (activeTab === 'history' && !hasFetchedHistory && !isFetchingHistory) {
+      fetchHistory();
+    }
+  });
+
+  async function fetchHistory() {
+    isFetchingHistory = true;
+    try {
+      const res = await fetch(`${PUBLIC_API_HOST}/history`);
+      const json = await res.json();
+      historyData = json.data || [];
+    } catch (err) {
+      console.error('Failed to fetch history', err);
+    } finally {
+      isFetchingHistory = false;
+      hasFetchedHistory = true;
+    }
+  }
 
   async function handleRefresh() {
     isRefreshing = true;
     try {
-      await invalidateAll();
+      if (activeTab === 'history') {
+        await fetchHistory();
+      } else {
+        await invalidateAll();
+      }
       showToast = true;
       setTimeout(() => showToast = false, 2000);
     } catch (err) {
@@ -77,7 +110,7 @@
         message: "berhasil",
         data: apiData
       };
-      await navigator.clipboard.writeText(JSON.stringify(fullPayload));
+      await navigator.clipboard.writeText(JSON.stringify(fullPayload, null, 2));
       copied = true;
       setTimeout(() => copied = false, 2000);
     } catch (err) {
@@ -86,15 +119,15 @@
   }
 
   async function copyHistoryJson() {
-    if (!data.historyData || data.historyData.length === 0) return;
+    if (!historyData || historyData.length === 0) return;
     try {
       const payload = {
         status: 200,
         success: true,
         message: "history",
-        data: data.historyData
+        data: historyData
       };
-      await navigator.clipboard.writeText(JSON.stringify(payload));
+      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
       copied = true;
       setTimeout(() => copied = false, 2000);
     } catch (err) {
@@ -169,32 +202,58 @@
     </section>
 
     <!-- Tab Switcher -->
-    <div class="tab-container glass-panel">
+    <div class="tab-container glass-panel scrollable-tabs">
       <button 
-        class="tab-btn {activeTab === 'live' ? 'active' : ''}" 
-        onclick={() => activeTab = 'live'}
+        class="tab-btn {activeTab === 'execute' ? 'active' : ''}" 
+        onclick={() => activeTab = 'execute'}
+      >
+        <span class="tab-icon">🚀</span>
+        <span class="tab-label">EXECUTE</span>
+        {#if executeSignals.length > 0}<span class="count-badge">{executeSignals.length}</span>{/if}
+      </button>
+      <button 
+        class="tab-btn {activeTab === 'gemini' ? 'active' : ''}" 
+        onclick={() => activeTab = 'gemini'}
+      >
+        <span class="tab-icon">🤖</span>
+        <span class="tab-label">AI WATCH</span>
+        {#if geminiWatchlist.length > 0}<span class="count-badge">{geminiWatchlist.length}</span>{/if}
+      </button>
+      <button 
+        class="tab-btn {activeTab === 'local' ? 'active' : ''}" 
+        onclick={() => activeTab = 'local'}
       >
         <span class="tab-icon">📡</span>
-        LIVE SCANNER
+        <span class="tab-label">LOCAL WATCH</span>
+        {#if localWatchlist.length > 0}<span class="count-badge">{localWatchlist.length}</span>{/if}
+      </button>
+      <button 
+        class="tab-btn {activeTab === 'rejected' ? 'active' : ''}" 
+        onclick={() => activeTab = 'rejected'}
+      >
+        <span class="tab-icon">🗑️</span>
+        <span class="tab-label">REJECTED</span>
+        {#if rejectedSignals.length > 0}<span class="count-badge" style="background: var(--accent-red);">{rejectedSignals.length}</span>{/if}
       </button>
       <button 
         class="tab-btn {activeTab === 'history' ? 'active' : ''}" 
         onclick={() => activeTab = 'history'}
       >
         <span class="tab-icon">🎯</span>
-        SNIPER S+ & S
-        {#if data.historyData.length > 0}
-          <span class="count-badge">{data.historyData.length}</span>
+        <span class="tab-label">HISTORY</span>
+        {#if historyData.length > 0}
+          <span class="count-badge">{historyData.length}</span>
         {/if}
       </button>
     </div>
 
     <!-- Signals List / History -->
-    {#if activeTab === 'live'}
+    {#if activeTab !== 'history'}
+      {@const activeSignals = activeTab === 'execute' ? executeSignals : activeTab === 'gemini' ? geminiWatchlist : activeTab === 'local' ? localWatchlist : rejectedSignals}
       <section class="signals-section" transition:slide>
         <div class="section-header">
           <h2 class="section-title">
-            Active Signals
+            {activeTab === 'execute' ? 'Ready to Execute' : activeTab === 'gemini' ? 'Gemini AI Watchlist' : activeTab === 'local' ? 'Local Scanner Watchlist' : 'Rejected Signals'}
             <button 
               class="refresh-btn {isRefreshing ? 'spinning' : ''}" 
               onclick={handleRefresh} 
@@ -214,15 +273,15 @@
             {/if}
           </button>
         </div>
-        {#if signals.length === 0}
+        {#if activeSignals.length === 0}
           <div class="empty-signals glass-panel">
             <div class="empty-icon">🔭</div>
             <h3>No Signals Found</h3>
-            <p>Market conditions don't meet sniper criteria. Waiting for high-confluence setups...</p>
+            <p>This bucket is currently empty. Waiting for setups...</p>
           </div>
         {:else}
           <div class="signals-grid">
-            {#each signals as signal}
+            {#each activeSignals as signal}
               <SignalCard {signal} {apiData} btcScore={apiData.btc_strength_score} />
             {/each}
           </div>
@@ -232,7 +291,15 @@
       <section class="signals-section" transition:slide>
         <div class="section-header">
           <h2 class="section-title">
-            Sniper History (2H)
+            Sniper History
+            <button 
+              class="refresh-btn {isRefreshing ? 'spinning' : ''}" 
+              onclick={handleRefresh} 
+              disabled={isRefreshing}
+              title="Refresh History Data"
+            >
+              <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" stroke-width="3" fill="none"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+            </button>
           </h2>
           <button class="copy-btn glass-panel" onclick={copyHistoryJson}>
             {#if copied}
@@ -244,7 +311,13 @@
             {/if}
           </button>
         </div>
-        {#if data.historyData.length === 0}
+        {#if isFetchingHistory}
+          <div class="empty-signals glass-panel">
+            <div class="spinner" style="margin-bottom: 1rem;"></div>
+            <h3>Loading History...</h3>
+            <p>Fetching the latest sniper records.</p>
+          </div>
+        {:else if historyData.length === 0}
           <div class="empty-signals glass-panel">
             <div class="empty-icon">📂</div>
             <h3>No History Recorded</h3>
@@ -252,7 +325,7 @@
           </div>
         {:else}
           <div class="signals-grid">
-            {#each data.historyData as signal}
+            {#each historyData as signal}
               <div class="history-item-wrapper">
                 <div class="timestamp-label">
                   {new Date(signal.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
@@ -697,6 +770,25 @@
       grid-template-columns: 1fr;
       gap: 1rem;
     }
+    
+    .tab-label {
+      display: none;
+    }
+
+    .tab-container {
+      justify-content: space-between;
+      gap: 0.25rem;
+    }
+    
+    .tab-btn {
+      padding: 0.5rem;
+      flex: 1;
+      justify-content: center;
+    }
+    
+    .tab-icon {
+      font-size: 1.2rem;
+    }
   }
 
   /* Tab Styles */
@@ -705,7 +797,14 @@
     gap: 0.5rem;
     padding: 0.5rem;
     margin-bottom: 2rem;
-    width: fit-content;
+    width: 100%;
+    overflow-x: auto;
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+  
+  .tab-container::-webkit-scrollbar {
+    display: none;
   }
 
   .tab-btn {
