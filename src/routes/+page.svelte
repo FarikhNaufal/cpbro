@@ -239,7 +239,7 @@ import { onMount } from 'svelte';
         class="tab-btn {activeTab === 'history' ? 'active' : ''}" 
         onclick={() => activeTab = 'history'}
       >
-        <span class="tab-icon">🎯</span>
+        <span class="tab-icon">📁</span>
         <span class="tab-label">HISTORY</span>
         {#if historyData.length > 0}
           <span class="count-badge">{historyData.length}</span>

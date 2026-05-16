@@ -6,6 +6,18 @@
 
   let copiedCard = $state(false);
   let showNotes = $state(false);
+  let showAI = $state(false);
+
+  function getBadgeClass(badge) {
+    if (!badge) return "";
+    const b = badge.toUpperCase();
+    if (b.includes("APPROVED")) return "ai-badge--approved";
+    if (b.includes("REJECTED")) return "ai-badge--rejected";
+    if (b.includes("WAIT")) return "ai-badge--wait";
+    if (b.includes("ERROR") || b.includes("INVALID")) return "ai-badge--error";
+    if (b.includes("SKIPPED") || b.includes("LOCAL")) return "ai-badge--skipped";
+    return "ai-badge--default";
+  }
 
   // Helper to limit decimals for high-precision coins
   function formatPrice(val) {
@@ -196,24 +208,31 @@
     return "regime-chop";
   });
 
-  // Master Status based on backend output
+  // Master Status based on AI Badge or Local Logic
   let masterStatus = $derived.by(() => {
+    if (signal.badge) {
+      return { 
+        text: signal.badge.toUpperCase(), 
+        cls: getBadgeClass(signal.badge) 
+      };
+    }
+    
     if (signal.setup_type === "overextended") {
-      return { text: "⚠️ OVEREXTENDED TREND", bg: "bg-rose" };
+      return { text: "⚠️ OVEREXTENDED TREND", cls: "bg-rose" };
     }
     if (signal.confidence === "HIGH") {
-      return { text: "🎯 EXECUTE TARGET", bg: "bg-green" };
+      return { text: "🎯 EXECUTE TARGET", cls: "bg-green" };
     }
     if (signal.confidence === "MEDIUM") {
-      return { text: "🔍 STALKING...", bg: "bg-amber" };
+      return { text: "🔍 STALKING...", cls: "bg-amber" };
     }
-    return { text: "⚖️ NEUTRAL ZONE", bg: "bg-slate" };
+    return { text: "⚖️ NEUTRAL ZONE", cls: "bg-slate" };
   });
 </script>
 
 <div class="signal-card glass-panel {isDangerTrend ? 'danger-glow' : ''}">
   <!-- Status Banner -->
-  <div class="master-banner {masterStatus.bg}">
+  <div class="master-banner {masterStatus.cls}">
     <span class="status-dot"></span>
     {masterStatus.text}
   </div>
@@ -302,8 +321,10 @@
     <div class="metrics-container">
       <div class="metric-item">
         <span class="m-label">RSI</span>
-        <span class="m-value {rsiColorClass}">{signal.rsi_15m?.toFixed(2)}</span
-        >
+        <span class="m-value {rsiColorClass}">
+          {signal.rsi_15m?.toFixed(1)}
+          <small>{(aiData.rsi_slope ?? 0) >= 0 ? "▲" : "▼"}</small>
+        </span>
       </div>
       <div class="metric-item">
         <span class="m-label">MFI</span>
@@ -333,8 +354,14 @@
     <!-- Execution Plan Block -->
     <div class="execution-grid">
       <div class="exec-block">
-        <div class="block-head">ENTRY ZONE</div>
-        <div class="val-large">${formatPrice(signal.entry_zone)}</div>
+        <div class="block-head">ENTRY ZONE ({signal.leverage || 5}x ISOLATED)</div>
+        <div 
+          class="val-large clickable-price" 
+          onclick={() => navigator.clipboard.writeText(formatPrice(signal.entry_zone))}
+          title="Klik untuk salin harga entry"
+        >
+          ${formatPrice(signal.entry_zone)}
+        </div>
         <div class="sub-info">
           Hold: {signal.max_hold_candles}c ({signal.max_hold_minutes}m)
         </div>
@@ -358,14 +385,60 @@
 
     <!-- Extra Intelligence -->
     <div class="intel-footer">
-      <div class="regime-tag" title="Market Structure">
-        <span class="regime-icon">🌐</span>
-        {signal.market_structure?.description || "Mid Range"}
+      <div class="regime-tag" title="AI Validation Status">
+        <span class="regime-icon">{signal.ai_approved ? '✅' : '❌'}</span>
+        AI APPROVED: {signal.ai_approved ? 'TRUE' : 'FALSE'}
       </div>
+
+
+
       {#if signal.liquidation_levels?.is_hunting}
         <div class="hunt-tag">🎯 STOP HUNT</div>
       {/if}
     </div>
+
+    <!-- AI Intelligence Block -->
+    {#if signal.is_gemini_candidate || signal.ai_analysis}
+      <div class="ai-intel-container">
+        <button class="ai-toggle" onclick={() => (showAI = !showAI)}>
+          <div class="ai-toggle-left">
+            <span class="ai-icon">🧠</span>
+            <span class="ai-label">AI INTELLIGENCE</span>
+            {#if signal.ai_score > 0}
+              <span class="ai-score-pill">Score: {signal.ai_score}</span>
+            {/if}
+          </div>
+          <svg
+            class:rotate={showAI}
+            viewBox="0 0 24 24"
+            width="14"
+            height="14"
+            stroke="currentColor"
+            stroke-width="2.5"
+            fill="none"
+          >
+            <polyline points="6 9 12 15 18 9"></polyline>
+          </svg>
+        </button>
+
+        {#if showAI}
+          <div class="ai-content" transition:slide>
+            {#if signal.ai_analysis}
+              <div class="ai-analysis-box">
+                <div class="ai-box-label">ANALYSIS</div>
+                <p class="ai-text">{signal.ai_analysis}</p>
+              </div>
+            {/if}
+            {#if signal.ai_risk}
+              <div class="ai-risk-box">
+                <div class="ai-box-label">PRIMARY RISK</div>
+                <p class="ai-text risk-text">{signal.ai_risk}</p>
+              </div>
+            {/if}
+          </div>
+        {/if}
+      </div>
+    {/if}
 
     {#if signal.notes?.length > 0}
       <div class="notes-container">
@@ -768,5 +841,142 @@
   .bg-slate {
     background: rgba(100, 116, 139, 0.1);
     color: #94a3b8;
+  }
+
+  /* AI Intelligence UI */
+  .ai-intel-container {
+    background: rgba(15, 23, 42, 0.4);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+    margin-top: 0.25rem;
+    overflow: hidden;
+  }
+
+  .ai-toggle {
+    width: 100%;
+    padding: 0.75rem 1rem;
+    background: transparent;
+    border: none;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+
+  .ai-toggle:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .ai-toggle-left {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .ai-icon {
+    font-size: 0.9rem;
+    filter: drop-shadow(0 0 5px rgba(129, 140, 248, 0.5));
+  }
+
+  .ai-label {
+    font-size: 0.65rem;
+    font-weight: 800;
+    color: #818cf8;
+    letter-spacing: 0.05em;
+  }
+
+  .ai-score-pill {
+    font-size: 0.6rem;
+    font-weight: 700;
+    background: rgba(129, 140, 248, 0.15);
+    color: #a5b4fc;
+    padding: 0.15rem 0.5rem;
+    border-radius: 6px;
+    border: 1px solid rgba(129, 140, 248, 0.2);
+  }
+
+  .ai-content {
+    padding: 0 1rem 1rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .ai-analysis-box,
+  .ai-risk-box {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .ai-box-label {
+    font-size: 0.55rem;
+    font-weight: 800;
+    color: #94a3b8;
+    letter-spacing: 0.05em;
+  }
+
+  .ai-text {
+    font-size: 0.7rem;
+    line-height: 1.5;
+    color: #e2e8f0;
+    margin: 0;
+  }
+
+  .risk-text {
+    color: #fda4af;
+  }
+
+  /* AI Badges in footer */
+  .ai-badge-tag {
+    font-size: 0.6rem;
+    font-weight: 800;
+    padding: 0.2rem 0.6rem;
+    border-radius: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+
+  .ai-badge--approved {
+    background: rgba(16, 185, 129, 0.15);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.3);
+  }
+
+  .ai-badge--rejected {
+    background: rgba(244, 63, 94, 0.15);
+    color: #fb7185;
+    border: 1px solid rgba(244, 63, 94, 0.3);
+  }
+
+  .ai-badge--wait {
+    background: rgba(245, 158, 11, 0.15);
+    color: #fbbf24;
+    border: 1px solid rgba(245, 158, 11, 0.3);
+  }
+
+  .ai-badge--error {
+    background: rgba(100, 116, 139, 0.15);
+    color: #cbd5e1;
+    border: 1px solid rgba(100, 116, 139, 0.3);
+  }
+
+  .ai-badge--skipped,
+  .ai-badge--default {
+    background: rgba(51, 65, 85, 0.2);
+    color: #94a3b8;
+    border: 1px solid rgba(100, 116, 139, 0.2);
+  }
+
+  .clickable-price {
+    cursor: pointer;
+    transition: color 0.2s ease, transform 0.1s ease;
+  }
+  .clickable-price:hover {
+    color: #34d399 !important;
+  }
+  .clickable-price:active {
+    transform: scale(0.98);
   }
 </style>
