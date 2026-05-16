@@ -253,7 +253,7 @@ import { onMount } from 'svelte';
       <section class="signals-section" transition:slide>
         <div class="section-header">
           <h2 class="section-title">
-            {activeTab === 'execute' ? 'Ready to Execute' : activeTab === 'gemini' ? 'Gemini AI Watchlist' : activeTab === 'local' ? 'Local Scanner Watchlist' : 'Rejected Signals'}
+            {activeTab === 'execute' ? 'Ready to Execute' : activeTab === 'gemini' ? 'Gemini AI Watchlist' : activeTab === 'local' ? 'Local Scanner' : 'Rejected Signals'}
             <button 
               class="refresh-btn {isRefreshing ? 'spinning' : ''}" 
               onclick={handleRefresh} 
@@ -330,7 +330,7 @@ import { onMount } from 'svelte';
                 <div class="timestamp-label">
                   {new Date(signal.timestamp).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
                 </div>
-                <SignalCard {signal} apiData={null} btcScore={0} />
+                <SignalCard {signal} {apiData} btcScore={apiData?.btc_strength_score || 0} />
               </div>
             {/each}
           </div>

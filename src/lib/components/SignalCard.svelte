@@ -1,16 +1,16 @@
 <script>
-  import Sparkline from './Sparkline.svelte';
-  import { slide } from 'svelte/transition';
-  
+  import Sparkline from "./Sparkline.svelte";
+  import { slide } from "svelte/transition";
+
   let { signal, apiData, btcScore = 0 } = $props();
-  
+
   let copiedCard = $state(false);
   let showNotes = $state(false);
 
   // Helper to limit decimals for high-precision coins
   function formatPrice(val) {
-    if (!val) return '0.00';
-    const num = typeof val === 'string' ? parseFloat(val) : val;
+    if (!val) return "0.00";
+    const num = typeof val === "string" ? parseFloat(val) : val;
     if (isNaN(num)) return val;
     // Format to max 5 decimals, but remove trailing zeros
     return Number(num.toFixed(5)).toString();
@@ -30,20 +30,23 @@
         execute_signals: null,
         gemini_watchlist: null,
         local_watchlist: null,
-        rejected_signals: null
-      }
+        rejected_signals: null,
+      },
     };
 
-    if (signal.telegram_level === 'EXECUTE') {
+    if (signal.telegram_level === "EXECUTE") {
       payload.data.execute_signals = [signal];
-    } else if (signal.telegram_level === 'WATCH' || signal.telegram_level === 'AI_ERROR_REVIEW') {
+    } else if (
+      signal.telegram_level === "WATCH" ||
+      signal.telegram_level === "AI_ERROR_REVIEW"
+    ) {
       payload.data.gemini_watchlist = [signal];
-    } else if (signal.final_status === 'LOCAL_WATCH') {
+    } else if (signal.final_status === "LOCAL_WATCH") {
       payload.data.local_watchlist = [signal];
     } else {
       payload.data.rejected_signals = [signal];
     }
-    
+
     const text = JSON.stringify(payload, null, 2);
 
     try {
@@ -60,29 +63,29 @@
         document.body.appendChild(textArea);
         textArea.focus();
         textArea.select();
-        const success = document.execCommand('copy');
+        const success = document.execCommand("copy");
         document.body.removeChild(textArea);
         if (success) {
           copiedCard = true;
         }
       }
       if (copiedCard) {
-        setTimeout(() => copiedCard = false, 2000);
+        setTimeout(() => (copiedCard = false), 2000);
       }
     } catch (err) {
-      console.error('Failed to copy', err);
+      console.error("Failed to copy", err);
     }
   }
 
   function getSignalColor(sig) {
-    if (!sig) return 'var(--text-muted)';
-    if (sig.includes('LONG')) return 'var(--accent-green)';
-    if (sig.includes('SHORT')) return 'var(--accent-red)';
-    return 'var(--text-main)';
+    if (!sig) return "var(--text-muted)";
+    if (sig.includes("LONG")) return "var(--accent-green)";
+    if (sig.includes("SHORT")) return "var(--accent-red)";
+    return "var(--text-main)";
   }
 
   // Helpers
-  let isLong = $derived(signal?.signal?.includes('LONG') ?? false);
+  let isLong = $derived(signal?.signal?.includes("LONG") ?? false);
   let aiData = $derived(signal?.ai || {});
 
   // RSI Color — Matching cryptoV2 determineSetup
@@ -91,13 +94,13 @@
     const slope = aiData.rsi_slope ?? 0;
 
     if (isLong) {
-      if (r < 30) return 'val--fire'; // range_reversal / extreme dip
-      if (r >= 30 && r <= 55 && slope > 0) return 'val--hot'; // trend_pullback
-      return 'val--neutral';
+      if (r < 30) return "val--fire"; // range_reversal / extreme dip
+      if (r >= 30 && r <= 55 && slope > 0) return "val--hot"; // trend_pullback
+      return "val--neutral";
     } else {
-      if (r > 70) return 'val--fire'; // range_reversal
-      if ((r >= 65 || (r > 50 && slope < 0)) && slope < 0) return 'val--hot'; // trend_pullback
-      return 'val--neutral';
+      if (r > 70) return "val--fire"; // range_reversal
+      if ((r >= 65 || (r > 50 && slope < 0)) && slope < 0) return "val--hot"; // trend_pullback
+      return "val--neutral";
     }
   });
 
@@ -107,91 +110,108 @@
     const slope = aiData.mfi_slope ?? 0;
 
     if (isLong) {
-      if (m > 80) return 'val--danger'; // Penalty anomaly
-      if (slope > 0 && m < 75) return 'val--hot'; // Momentum boost
+      if (m > 80) return "val--danger"; // Penalty anomaly
+      if (slope > 0 && m < 75) return "val--hot"; // Momentum boost
     } else {
-      if (m < 20) return 'val--danger'; // Penalty anomaly
-      if (slope < 0) return 'val--hot'; // Valid momentum
+      if (m < 20) return "val--danger"; // Penalty anomaly
+      if (slope < 0) return "val--hot"; // Valid momentum
     }
-    return 'val--neutral';
+    return "val--neutral";
   });
 
   // Funding Rate — Matching cryptoV2 calculateV3Score penalties (0.0005)
   let fundingLabel = $derived.by(() => {
     const f = aiData.funding_rate ?? signal.funding_rate ?? 0;
     const fPct = f * 100;
-    
+
     // Fixed threshold from backend
     const threshold = 0.0005;
 
     if (Math.abs(f) > threshold) {
-      const isCrowded = (f > threshold && isLong) || (f < -threshold && !isLong);
-      return { 
-        label: `${f > 0 ? '+' : ''}${fPct.toFixed(3)}%`, 
-        cls: isCrowded ? 'val--danger' : 'val--warm', 
-        tip: `Threshold: 0.05%` 
+      const isCrowded =
+        (f > threshold && isLong) || (f < -threshold && !isLong);
+      return {
+        label: `${f > 0 ? "+" : ""}${fPct.toFixed(3)}%`,
+        cls: isCrowded ? "val--danger" : "val--warm",
+        tip: `Threshold: 0.05%`,
       };
     }
-    return { label: `${fPct.toFixed(3)}%`, cls: 'val--neutral', tip: 'Healthy Funding' };
+    return {
+      label: `${fPct.toFixed(3)}%`,
+      cls: "val--neutral",
+      tip: "Healthy Funding",
+    };
   });
 
   // OI Change — Matching cryptoV2 calculateV3Score
   let oiLabel = $derived.by(() => {
     const oi = aiData.oi_change ?? signal.oi_change ?? 0;
-    
+
     if (oi > 1.5) {
-      return { label: `+${oi.toFixed(2)}%`, cls: 'val--fire' };
+      return { label: `+${oi.toFixed(2)}%`, cls: "val--fire" };
     } else if (oi < 0 && isLong) {
-      return { label: `${oi.toFixed(2)}%`, cls: 'val--danger' }; // Penalty
+      return { label: `${oi.toFixed(2)}%`, cls: "val--danger" }; // Penalty
     }
-    return { label: `${oi > 0 ? '+' : ''}${oi.toFixed(2)}%`, cls: 'val--neutral' };
+    return {
+      label: `${oi > 0 ? "+" : ""}${oi.toFixed(2)}%`,
+      cls: "val--neutral",
+    };
   });
 
   // Confluence Rating color
   let confluenceColorClass = $derived.by(() => {
-    const r = signal.confluence_rating ?? '';
-    if (r === 'HIGH') return 'val--green';
-    if (r === 'MEDIUM') return 'val--warm';
-    if (r === 'LOW') return 'val--gray';
-    return 'val--neutral';
+    const r = signal.confluence_rating ?? "";
+    if (r === "HIGH") return "val--green";
+    if (r === "MEDIUM") return "val--warm";
+    if (r === "LOW") return "val--gray";
+    return "val--neutral";
+  });
+
+  // Grade Badge color
+  let gradeColorClass = $derived.by(() => {
+    const r = signal.grade ?? "";
+    if (r.startsWith("Grade S")) return "val--gold";
+    if (r.startsWith("Grade A")) return "val--green";
+    if (r.startsWith("Grade B") || r.startsWith("Grade C")) return "val--gray";
+    return "val--neutral";
   });
 
   // ADX Logic aligned with backend (Overextended threshold)
-  let isDangerTrend = $derived(signal.setup_type === 'overextended');
+  let isDangerTrend = $derived(signal.setup_type === "overextended");
   let adxRising = $derived((aiData.adx_slope ?? 0) > 0);
-  
+
   let isAntiShort = $derived(!isLong && btcScore >= 8);
-  let btcFilterOk = $derived(isLong
-    ? signal.btc_filter?.toLowerCase().includes('bull')
-    : signal.btc_filter?.toLowerCase().includes('bear'));
+  let btcFilterOk = $derived(
+    isLong
+      ? signal.btc_filter?.toLowerCase().includes("bull")
+      : signal.btc_filter?.toLowerCase().includes("bear"),
+  );
 
   // Regime display
   let regimeClass = $derived.by(() => {
-    const r = signal.market_structure?.market_regime ?? '';
-    if (r.includes('Trending Bullish')) return 'regime-bull';
-    if (r.includes('Trending Bearish')) return 'regime-bear';
-    if (r.includes('Squeeze')) return 'regime-squeeze';
-    return 'regime-chop';
+    const r = signal.market_structure?.market_regime ?? "";
+    if (r.includes("Trending Bullish")) return "regime-bull";
+    if (r.includes("Trending Bearish")) return "regime-bear";
+    if (r.includes("Squeeze")) return "regime-squeeze";
+    return "regime-chop";
   });
 
   // Master Status based on backend output
   let masterStatus = $derived.by(() => {
-    if (signal.setup_type === 'overextended') {
-      return { text: '⚠️ OVEREXTENDED TREND', bg: 'bg-rose' };
+    if (signal.setup_type === "overextended") {
+      return { text: "⚠️ OVEREXTENDED TREND", bg: "bg-rose" };
     }
-    if (signal.confidence === 'HIGH') {
-      return { text: '🎯 EXECUTE TARGET', bg: 'bg-green' };
+    if (signal.confidence === "HIGH") {
+      return { text: "🎯 EXECUTE TARGET", bg: "bg-green" };
     }
-    if (signal.confidence === 'MEDIUM') {
-      return { text: '🔍 STALKING...', bg: 'bg-amber' };
+    if (signal.confidence === "MEDIUM") {
+      return { text: "🔍 STALKING...", bg: "bg-amber" };
     }
-    return { text: "⚖️ NEUTRAL ZONE", bg: 'bg-slate' };
+    return { text: "⚖️ NEUTRAL ZONE", bg: "bg-slate" };
   });
-
 </script>
 
 <div class="signal-card glass-panel {isDangerTrend ? 'danger-glow' : ''}">
-  
   <!-- Status Banner -->
   <div class="master-banner {masterStatus.bg}">
     <span class="status-dot"></span>
@@ -204,32 +224,71 @@
       <div class="sym-block">
         <div class="sym-row">
           <h3>{signal.symbol}</h3>
-          <button class="icon-copy-btn" onclick={copySignalJson} title="Copy JSON Signal">
+          <button
+            class="icon-copy-btn"
+            onclick={copySignalJson}
+            title="Copy JSON Signal"
+          >
             {#if copiedCard}
-              <svg viewBox="0 0 24 24" width="18" height="18" stroke="#34d399" stroke-width="3" fill="none"><polyline points="20 6 9 17 4 12"></polyline></svg>
+              <svg
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                stroke="#34d399"
+                stroke-width="3"
+                fill="none"><polyline points="20 6 9 17 4 12"></polyline></svg
+              >
             {:else}
-              <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2" fill="none"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+              <svg
+                viewBox="0 0 24 24"
+                width="18"
+                height="18"
+                stroke="currentColor"
+                stroke-width="2"
+                fill="none"
+                ><rect x="9" y="9" width="13" height="13" rx="2" ry="2"
+                ></rect><path
+                  d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"
+                ></path></svg
+              >
             {/if}
           </button>
         </div>
-        
+
         <div class="grade-row">
-          <div class="grade-badge {confluenceColorClass}" title={signal.confluence_rating}>
+          <div
+            class="grade-badge {gradeColorClass}"
+            title={signal.grade}
+          >
+            {signal.grade}
+          </div>
+          <div
+            class="grade-badge {confluenceColorClass}"
+            title={signal.confluence_rating}
+          >
             {signal.confluence_rating}
           </div>
         </div>
 
         <div class="status-row">
           <span class="score-tag">[{signal.score?.toFixed(2)}]</span>
-          <span class="sig-badge" style="color:{getSignalColor(signal.signal)}; border: 1px solid {getSignalColor(signal.signal)}40">
-            {signal.signal?.replace('_', ' ')}
+          <span
+            class="sig-badge"
+            style="color:{getSignalColor(
+              signal.signal,
+            )}; border: 1px solid {getSignalColor(signal.signal)}40"
+          >
+            {signal.signal?.replace("_", " ")}
           </span>
         </div>
       </div>
       <div class="price-block">
         <div class="main-price">${signal.last_price}</div>
-        <div class="price-change {signal.price_change_24h >= 0 ? 'pos' : 'neg'}">
-          {signal.price_change_24h >= 0 ? '▲' : '▼'} {Math.abs(signal.price_change_24h)}%
+        <div
+          class="price-change {signal.price_change_24h >= 0 ? 'pos' : 'neg'}"
+        >
+          {signal.price_change_24h >= 0 ? "▲" : "▼"}
+          {Math.abs(signal.price_change_24h)}%
         </div>
       </div>
     </div>
@@ -243,11 +302,13 @@
     <div class="metrics-container">
       <div class="metric-item">
         <span class="m-label">RSI</span>
-        <span class="m-value {rsiColorClass}">{signal.rsi_15m?.toFixed(2)}</span>
+        <span class="m-value {rsiColorClass}">{signal.rsi_15m?.toFixed(2)}</span
+        >
       </div>
       <div class="metric-item">
         <span class="m-label">MFI</span>
-        <span class="m-value {mfiColorClass}">{signal.mfi_15m?.toFixed(2)}</span>
+        <span class="m-value {mfiColorClass}">{signal.mfi_15m?.toFixed(2)}</span
+        >
       </div>
       <div class="metric-item">
         <span class="m-label">ADX</span>
@@ -263,7 +324,9 @@
       </div>
       <div class="metric-item">
         <span class="m-label">BTC</span>
-        <span class="m-value {btcFilterOk ? 'val--fire' : 'val--danger'}">{signal.btc_filter?.split(' ')[0]}</span>
+        <span class="m-value {btcFilterOk ? 'val--fire' : 'val--danger'}"
+          >{signal.btc_filter?.split(" ")[0]}</span
+        >
       </div>
     </div>
 
@@ -272,7 +335,9 @@
       <div class="exec-block">
         <div class="block-head">ENTRY ZONE</div>
         <div class="val-large">${formatPrice(signal.entry_zone)}</div>
-        <div class="sub-info">Hold: {signal.max_hold_candles}c ({signal.max_hold_minutes}m)</div>
+        <div class="sub-info">
+          Hold: {signal.max_hold_candles}c ({signal.max_hold_minutes}m)
+        </div>
       </div>
       <div class="exec-block">
         <div class="block-head">TARGET / RISK</div>
@@ -294,7 +359,8 @@
     <!-- Extra Intelligence -->
     <div class="intel-footer">
       <div class="regime-tag" title="Market Structure">
-        <span class="regime-icon">🌐</span> {signal.market_structure?.description || 'Mid Range'}
+        <span class="regime-icon">🌐</span>
+        {signal.market_structure?.description || "Mid Range"}
       </div>
       {#if signal.liquidation_levels?.is_hunting}
         <div class="hunt-tag">🎯 STOP HUNT</div>
@@ -303,11 +369,19 @@
 
     {#if signal.notes?.length > 0}
       <div class="notes-container">
-        <button class="notes-toggle" onclick={() => showNotes = !showNotes}>
-          <span>{showNotes ? 'HIDE NOTES' : 'SHOW NOTES'}</span>
-          <svg class:rotate={showNotes} viewBox="0 0 24 24" width="10" height="10" stroke="currentColor" stroke-width="3" fill="none"><polyline points="6 9 12 15 18 9"></polyline></svg>
+        <button class="notes-toggle" onclick={() => (showNotes = !showNotes)}>
+          <span>{showNotes ? "HIDE NOTES" : "SHOW NOTES"}</span>
+          <svg
+            class:rotate={showNotes}
+            viewBox="0 0 24 24"
+            width="10"
+            height="10"
+            stroke="currentColor"
+            stroke-width="3"
+            fill="none"><polyline points="6 9 12 15 18 9"></polyline></svg
+          >
         </button>
-        
+
         {#if showNotes}
           <div class="notes-line" transition:slide>
             {#each signal.notes as note}
@@ -405,6 +479,7 @@
   .grade-row {
     display: flex;
     min-width: 0;
+    gap: 0.5rem;
   }
 
   .grade-badge {
@@ -430,7 +505,7 @@
     padding: 0.15rem 0.4rem;
     border-radius: 4px;
     text-transform: uppercase;
-    background: rgba(0,0,0,0.2);
+    background: rgba(0, 0, 0, 0.2);
     white-space: nowrap;
   }
 
@@ -439,12 +514,22 @@
     font-weight: 800;
     color: #ffffff; /* White color for contrast */
     opacity: 1;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: "JetBrains Mono", monospace;
   }
 
-  .price-block { text-align: right; }
-  .main-price { font-size: 1.2rem; font-weight: 800; color: #f8fafc; }
-  .price-change { font-size: 0.75rem; font-weight: 600; margin-top: 0.1rem; }
+  .price-block {
+    text-align: right;
+  }
+  .main-price {
+    font-size: 1.2rem;
+    font-weight: 800;
+    color: #f8fafc;
+  }
+  .price-change {
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-top: 0.1rem;
+  }
 
   /* Metrics Grid */
   .metrics-container {
@@ -457,24 +542,24 @@
     border: 1px solid rgba(255, 255, 255, 0.03);
   }
 
-  .metric-item { 
-    display: flex; 
-    flex-direction: column; 
+  .metric-item {
+    display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
     gap: 0.2rem;
     text-align: center;
   }
-  .m-label { 
-    font-size: 0.55rem; 
-    font-weight: 800; 
-    color: #64748b; 
-    text-transform: uppercase; 
+  .m-label {
+    font-size: 0.55rem;
+    font-weight: 800;
+    color: #64748b;
+    text-transform: uppercase;
     letter-spacing: 0.05em;
   }
-  .m-value { 
-    font-size: 0.9rem; 
-    font-weight: 900; 
+  .m-value {
+    font-size: 0.9rem;
+    font-weight: 900;
     color: #f8fafc;
     width: 100%;
     overflow: hidden;
@@ -482,21 +567,32 @@
   }
 
   /* Ensure dynamic colors override the default white */
-  .m-value.val--fire { color: #10b981 !important; text-shadow: 0 0 12px rgba(16,185,129,0.4); }
-  .m-value.val--hot  { color: #34d399 !important; }
-  .m-value.val--warm { color: #f59e0b !important; }
-  .m-value.val--danger { color: #f43f5e !important; }
-  .m-value.val--neutral { color: #64748b !important; }
+  .m-value.val--fire {
+    color: #10b981 !important;
+    text-shadow: 0 0 12px rgba(16, 185, 129, 0.4);
+  }
+  .m-value.val--hot {
+    color: #34d399 !important;
+  }
+  .m-value.val--warm {
+    color: #f59e0b !important;
+  }
+  .m-value.val--danger {
+    color: #f43f5e !important;
+  }
+  .m-value.val--neutral {
+    color: #64748b !important;
+  }
 
   /* Grade Specific Text Colors (Solid & Bright) */
   .grade-badge.val--gold {
-    color: #FFD700;
+    color: #ffd700;
   }
   .grade-badge.val--green {
-    color: #4ADE80;
+    color: #4ade80;
   }
   .grade-badge.val--gray {
-    color: #94A3B8;
+    color: #94a3b8;
   }
 
   /* Execution Grid */
@@ -513,14 +609,23 @@
     border: 1px solid rgba(255, 255, 255, 0.03);
   }
 
-  .block-head { font-size: 0.55rem; font-weight: 800; color: #64748b; margin-bottom: 0.3rem; }
-  .val-large { 
-    font-size: 1.2rem; 
-    font-weight: 900; 
+  .block-head {
+    font-size: 0.55rem;
+    font-weight: 800;
+    color: #64748b;
+    margin-bottom: 0.3rem;
+  }
+  .val-large {
+    font-size: 1.2rem;
+    font-weight: 900;
     color: #ffffff;
     letter-spacing: -0.01em;
   }
-  .sub-info { font-size: 0.6rem; color: #475569; margin-top: 0.2rem; }
+  .sub-info {
+    font-size: 0.6rem;
+    color: #475569;
+    margin-top: 0.2rem;
+  }
 
   .target-row {
     display: flex;
@@ -529,8 +634,13 @@
     margin-top: 0.2rem;
   }
 
-  .t-label { color: #64748b; font-weight: 600; }
-  .font-bold { font-weight: 800; }
+  .t-label {
+    color: #64748b;
+    font-weight: 600;
+  }
+  .font-bold {
+    font-weight: 800;
+  }
 
   /* Intelligence */
   .intel-footer {
@@ -540,7 +650,8 @@
     flex-wrap: wrap;
   }
 
-  .regime-tag, .hunt-tag {
+  .regime-tag,
+  .hunt-tag {
     font-size: 0.65rem;
     font-weight: 700;
     padding: 0.3rem 0.6rem;
@@ -549,7 +660,11 @@
     color: #cbd5e1;
   }
 
-  .hunt-tag { color: #f59e0b; background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); }
+  .hunt-tag {
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+  }
 
   .notes-container {
     margin-top: -0.25rem;
@@ -573,9 +688,15 @@
     transition: color 0.2s;
   }
 
-  .notes-toggle:hover { color: #94a3b8; }
-  .notes-toggle svg { transition: transform 0.3s ease; }
-  .notes-toggle svg.rotate { transform: rotate(180deg); }
+  .notes-toggle:hover {
+    color: #94a3b8;
+  }
+  .notes-toggle svg {
+    transition: transform 0.3s ease;
+  }
+  .notes-toggle svg.rotate {
+    transform: rotate(180deg);
+  }
 
   .notes-line {
     display: flex;
@@ -611,19 +732,41 @@
     align-items: center;
     transition: all 0.2s;
     margin-top: 0.1rem;
-    filter: drop-shadow(0 0 8px rgba(0,0,0,0.3));
+    filter: drop-shadow(0 0 8px rgba(0, 0, 0, 0.3));
   }
 
-  .icon-copy-btn:hover { color: #f8fafc; }
+  .icon-copy-btn:hover {
+    color: #f8fafc;
+  }
 
   /* Colors */
-  .pos { color: #10b981; }
-  .neg { color: #f43f5e; }
-  .val--fire { color: #34d399; }
-  .val--danger { color: #fb7185; }
+  .pos {
+    color: #10b981;
+  }
+  .neg {
+    color: #f43f5e;
+  }
+  .val--fire {
+    color: #34d399;
+  }
+  .val--danger {
+    color: #fb7185;
+  }
 
-  .bg-green { background: rgba(16, 185, 129, 0.1); color: #34d399; }
-  .bg-amber { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
-  .bg-rose { background: rgba(244, 63, 94, 0.1); color: #fb7185; }
-  .bg-slate { background: rgba(100, 116, 139, 0.1); color: #94a3b8; }
+  .bg-green {
+    background: rgba(16, 185, 129, 0.1);
+    color: #34d399;
+  }
+  .bg-amber {
+    background: rgba(245, 158, 11, 0.1);
+    color: #f59e0b;
+  }
+  .bg-rose {
+    background: rgba(244, 63, 94, 0.1);
+    color: #fb7185;
+  }
+  .bg-slate {
+    background: rgba(100, 116, 139, 0.1);
+    color: #94a3b8;
+  }
 </style>
