@@ -403,7 +403,7 @@
         <button class="ai-toggle" onclick={() => (showAI = !showAI)}>
           <div class="ai-toggle-left">
             <span class="ai-icon">🧠</span>
-            <span class="ai-label">AI INTELLIGENCE</span>
+            <span class="ai-label">GeminiAI Result</span>
             {#if signal.ai_score > 0}
               <span class="ai-score-pill">Score: {signal.ai_score}</span>
             {/if}
@@ -465,6 +465,12 @@
       </div>
     {/if}
   </div>
+
+  {#if signal.tier}
+    <div class="card-tier-footer {signal.tier.includes('Tier A') ? 'tier-a' : signal.tier.includes('Tier B') ? 'tier-b' : 'tier-c'}">
+      💎 {signal.tier}
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -850,6 +856,8 @@
     border-radius: 12px;
     margin-top: 0.25rem;
     overflow: hidden;
+    max-width: 100%;
+    box-sizing: border-box;
   }
 
   .ai-toggle {
@@ -872,6 +880,7 @@
     display: flex;
     align-items: center;
     gap: 0.6rem;
+    min-width: 0;
   }
 
   .ai-icon {
@@ -894,13 +903,15 @@
     padding: 0.15rem 0.5rem;
     border-radius: 6px;
     border: 1px solid rgba(129, 140, 248, 0.2);
+    white-space: nowrap;
   }
 
   .ai-content {
-    padding: 0 1rem 1rem 1rem;
+    padding: 0.6rem 1rem 1rem 1rem;
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
+    min-width: 0;
   }
 
   .ai-analysis-box,
@@ -908,6 +919,8 @@
     display: flex;
     flex-direction: column;
     gap: 0.4rem;
+    min-width: 0;
+    width: 100%;
   }
 
   .ai-box-label {
@@ -922,6 +935,8 @@
     line-height: 1.5;
     color: #e2e8f0;
     margin: 0;
+    word-break: break-word;
+    overflow-wrap: anywhere;
   }
 
   .risk-text {
@@ -978,5 +993,31 @@
   }
   .clickable-price:active {
     transform: scale(0.98);
+  }
+
+  .card-tier-footer {
+    padding: 0.35rem 1rem;
+    font-size: 0.6rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    text-align: center;
+    border-top: 1px solid rgba(255, 255, 255, 0.03);
+    background: rgba(15, 23, 42, 0.3);
+  }
+  .card-tier-footer.tier-a {
+    color: #ffd700;
+    background: rgba(255, 215, 0, 0.05);
+    border-top: 1px solid rgba(255, 215, 0, 0.1);
+  }
+  .card-tier-footer.tier-b {
+    color: #60a5fa;
+    background: rgba(96, 165, 250, 0.05);
+    border-top: 1px solid rgba(96, 165, 250, 0.1);
+  }
+  .card-tier-footer.tier-c {
+    color: #94a3b8;
+    background: rgba(148, 163, 184, 0.05);
+    border-top: 1px solid rgba(148, 163, 184, 0.1);
   }
 </style>
